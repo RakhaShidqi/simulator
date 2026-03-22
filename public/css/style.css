@@ -282,22 +282,29 @@
             border-color: #d4af37;
         }
 
-        /* Style untuk info rows */
-        .info-row {
+        /* Style untuk info row dengan titik dua */
+        .info-row-dot {
             display: flex;
-            align-items: flex-start;
+            align-items: baseline;
             gap: 12px;
             margin-bottom: 8px;
             line-height: 1.5;
         }
 
-        .info-label {
+        .info-label-dot {
             min-width: 85px;
             font-weight: 600;
+            text-align: right;
             color: #00ff9d;
         }
 
-        .info-value {
+        .info-colon {
+            font-weight: 600;
+            color: #00ff9d;
+            width: 15px;
+        }
+
+        .info-value-dot {
             flex: 1;
             color: #ddd;
             word-break: break-word;

@@ -221,34 +221,34 @@
                 ${location.status === 'granted' && location.latitude ? `
                 <div class="data-section">
                     <div class="data-title">📍 LOKASI GPS</div>
-                    
                     <div class="data-content">
-                        <div class="info-row">
-                            <div class="info-label">Latitude:</div>
-                            <div class="info-value">${location.latitude}</div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Longitude</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${location.longitude}</div>
                         </div>
-                        <div class="info-row">
-                            <div class="info-label">Longitude:</div>
-                            <div class="info-value">${location.longitude}</div>
-                        </div>
-                        <div class="info-row">
-                            <div class="info-label">Akurasi:</div>
-                            <div class="info-value">${location.accuracy || 'N/A'} meter</div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Akurasi</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${location.accuracy || 'N/A'} meter</div>
                         </div>
                         ${location.altitude ? `
-                        <div class="info-row">
-                            <div class="info-label">Altitude:</div>
-                            <div class="info-value">${location.altitude} meter</div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Altitude</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${location.altitude} meter</div>
                         </div>
                         ` : ''}
-                        <div class="info-row">
-                            <div class="info-label">Maps:</div>
-                            <div class="info-value">
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Maps</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">
                                 <a href="https://www.google.com/maps?q=${location.latitude},${location.longitude}" 
                                 target="_blank" class="map-link">🔍 Buka di Google Maps</a>
                             </div>
                         </div>
                     </div>
+
                 </div>
                 ` : ''}
                 
