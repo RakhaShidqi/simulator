@@ -264,13 +264,38 @@
                 <div class="data-section">
                     <div class="data-title">📱 INFO DEVICE</div>
                     <div class="data-content">
-                        <b>Platform:</b> ${platform}<br>
-                        <b>Browser:</b> ${userAgent.length > 60 ? userAgent.substring(0, 60) + '...' : userAgent}<br>
-                        <b>Screen:</b> ${screenInfo}<br>
-                        <b>Battery:</b> ${batteryInfo}<br>
-                        <b>Language:</b> ${deviceInfo.language || 'N/A'}<br>
-                        <b>Timezone:</b> ${deviceInfo.timezone || 'N/A'}
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Platform</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${platform}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Browser</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${userAgent.length > 60 ? userAgent.substring(0, 60) + '...' : userAgent}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Screen</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${screenInfo}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Battery</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${batteryInfo}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Language</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${deviceInfo.language || 'N/A'}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Timezone</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${deviceInfo.timezone || 'N/A'}</div>
+                        </div>
                     </div>
+
                 </div>
                 
                 <div class="data-section" id="photo-${victim.victimId}">
@@ -285,12 +310,33 @@
                 <div class="data-section">
                     <div class="data-title">🌐 NETWORK</div>
                     <div class="data-content">
-                        <b>Online:</b> ${network.online ? 'Ya' : 'Tidak'}<br>
-                        <b>Koneksi:</b> ${network.connection?.type || 'N/A'}<br>
-                        <b>Kecepatan:</b> ${network.connection?.downlink || 'N/A'} Mbps<br>
-                        <b>IP Public:</b> ${ipPublic}<br>
-                        <b>IP Lokal:</b> ${ipLokal}
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Online</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${network.online ? 'Ya' : 'Tidak'}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Koneksi</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${network.connection?.type || 'N/A'}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">Kecepatan</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${network.connection?.downlink || 'N/A'} Mbps</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">IP Public</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${ipPublic}</div>
+                        </div>
+                        <div class="info-row-dot">
+                            <div class="info-label-dot">IP Lokal</div>
+                            <div class="info-colon">:</div>
+                            <div class="info-value-dot">${ipLokal}</div>
+                        </div>
                     </div>
+
                 </div>
                 
                 <div style="margin-top: 10px; font-size: 11px; color: #666; text-align: right;">
