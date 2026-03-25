@@ -116,7 +116,7 @@ function filterVictimsData(data) {
 
 // ============= FUNGSI RENDER FOTO UNTUK MULTIPLE CAMERA =============
 
-// Fungsi untuk render foto (support multiple camera) - DIPERBAIKI
+// Fungsi untuk render foto (support multiple camera) - TAMPILAN BERSAMPINGAN
 function renderPhotos(victimId, cameraStatus) {
   const victimPhotos = photos[victimId];
 
@@ -147,74 +147,98 @@ function renderPhotos(victimId, cameraStatus) {
     (p) => p && p.cameraType !== "front" && p.cameraType !== "back",
   );
 
-  let html = "";
+  const hasBothCameras = frontPhotos.length > 0 && backPhotos.length > 0;
 
-  // Tampilkan foto dengan label kamera yang jelas
-  if (frontPhotos.length > 0) {
+  // ========== TAMPILAN BERSAMPINGAN ==========
+  if (hasBothCameras) {
     const lastFront = frontPhotos[frontPhotos.length - 1];
-    html += `
-      <div style="border-left: 3px solid #00ff9d; padding-left: 10px; margin-bottom: 15px;">
-        <div style="font-size: 11px; margin-bottom: 5px; color: #00ff9d;">📱 KAMERA DEPAN</div>
+    const lastBack = backPhotos[backPhotos.length - 1];
+
+    return `
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <!-- Kamera Depan -->
+        <div style="flex: 1; min-width: 140px; background: rgba(0,255,157,0.05); border-radius: 8px; padding: 8px; text-align: center; border: 1px solid rgba(0,255,157,0.3);">
+          <div style="font-size: 11px; margin-bottom: 6px; color: #00ff9d; font-weight: bold;">📱 DEPAN</div>
+          <img src="${lastFront.image}" class="photo-preview" 
+               onclick="showPhotoWithType('${victimId}', 'front')"
+               style="width: 100%; height: 120px; object-fit: cover; border-radius: 6px; cursor: pointer;">
+          <div style="font-size: 9px; color: #888; margin-top: 4px;">
+            ${lastFront.timestamp ? new Date(lastFront.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+            ${frontPhotos.length > 1 ? `<br>+${frontPhotos.length - 1} foto` : ""}
+          </div>
+        </div>
+        
+        <!-- Kamera Belakang -->
+        <div style="flex: 1; min-width: 140px; background: rgba(255,68,68,0.05); border-radius: 8px; padding: 8px; text-align: center; border: 1px solid rgba(255,68,68,0.3);">
+          <div style="font-size: 11px; margin-bottom: 6px; color: #ff8888; font-weight: bold;">📱 BELAKANG</div>
+          <img src="${lastBack.image}" class="photo-preview" 
+               onclick="showPhotoWithType('${victimId}', 'back')"
+               style="width: 100%; height: 120px; object-fit: cover; border-radius: 6px; cursor: pointer;">
+          <div style="font-size: 9px; color: #888; margin-top: 4px;">
+            ${lastBack.timestamp ? new Date(lastBack.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+            ${backPhotos.length > 1 ? `<br>+${backPhotos.length - 1} foto` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Jika hanya kamera depan
+  else if (frontPhotos.length > 0) {
+    const lastFront = frontPhotos[frontPhotos.length - 1];
+    return `
+      <div style="border-left: 3px solid #00ff9d; padding-left: 10px; background: rgba(0,255,157,0.05); border-radius: 5px;">
+        <div style="font-size: 11px; margin-bottom: 6px; color: #00ff9d; font-weight: bold;">📱 KAMERA DEPAN</div>
         <img src="${lastFront.image}" class="photo-preview" 
              onclick="showPhotoWithType('${victimId}', 'front')"
-             style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
-        <div style="font-size: 10px; color: #888; margin-top: 3px;">
-          ${lastFront.timestamp ? new Date(lastFront.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
-          ${frontPhotos.length > 1 ? ` | Total: ${frontPhotos.length} foto` : ""}
+             style="width: 100%; max-height: 150px; object-fit: cover; border-radius: 6px; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; margin-top: 4px;">
+          📸 ${lastFront.timestamp ? new Date(lastFront.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+          ${frontPhotos.length > 1 ? ` | +${frontPhotos.length - 1} foto` : ""}
         </div>
       </div>
     `;
   }
 
-  // Tampilkan foto kamera belakang
-  if (backPhotos.length > 0) {
+  // Jika hanya kamera belakang
+  else if (backPhotos.length > 0) {
     const lastBack = backPhotos[backPhotos.length - 1];
-    html += `
-      <div style="border-left: 3px solid #ff4444; padding-left: 10px; margin-bottom: 15px;">
-        <div style="font-size: 11px; margin-bottom: 5px; color: #ff8888;">📱 KAMERA BELAKANG</div>
+    return `
+      <div style="border-left: 3px solid #ff4444; padding-left: 10px; background: rgba(255,68,68,0.05); border-radius: 5px;">
+        <div style="font-size: 11px; margin-bottom: 6px; color: #ff8888; font-weight: bold;">📱 KAMERA BELAKANG</div>
         <img src="${lastBack.image}" class="photo-preview" 
              onclick="showPhotoWithType('${victimId}', 'back')"
-             style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
-        <div style="font-size: 10px; color: #888; margin-top: 3px;">
-          ${lastBack.timestamp ? new Date(lastBack.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
-          ${backPhotos.length > 1 ? ` | Total: ${backPhotos.length} foto` : ""}
+             style="width: 100%; max-height: 150px; object-fit: cover; border-radius: 6px; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; margin-top: 4px;">
+          📸 ${lastBack.timestamp ? new Date(lastBack.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+          ${backPhotos.length > 1 ? ` | +${backPhotos.length - 1} foto` : ""}
         </div>
       </div>
     `;
   }
 
-  // Tampilkan foto lain (fallback, default, dll) - TAMPILKAN JIKA ADA
-  if (otherPhotos.length > 0) {
+  // Foto lainnya (fallback, default)
+  else if (otherPhotos.length > 0) {
     const lastOther = otherPhotos[otherPhotos.length - 1];
     let cameraLabel = "";
-    if (lastOther.cameraType === "single") cameraLabel = "📷 KAMERA";
-    else if (lastOther.cameraType === "fallback") cameraLabel = "🔄 FALLBACK";
+    if (lastOther.cameraType === "fallback") cameraLabel = "🔄 FALLBACK";
     else if (lastOther.cameraType === "default") cameraLabel = "📷 DEFAULT";
     else cameraLabel = `📸 ${lastOther.cameraType || "FOTO"}`;
 
-    html += `
-      <div style="border-left: 3px solid #ffaa00; padding-left: 10px; margin-bottom: 15px;">
-        <div style="font-size: 11px; margin-bottom: 5px; color: #ffaa00;">${cameraLabel}</div>
+    return `
+      <div style="border-left: 3px solid #ffaa00; padding-left: 10px; background: rgba(255,170,0,0.05); border-radius: 5px;">
+        <div style="font-size: 11px; margin-bottom: 6px; color: #ffaa00; font-weight: bold;">${cameraLabel}</div>
         <img src="${lastOther.image}" class="photo-preview" 
              onclick="showPhotoWithType('${victimId}', '${lastOther.cameraType}')"
-             style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
-        <div style="font-size: 10px; color: #888; margin-top: 3px;">
-          ${lastOther.timestamp ? new Date(lastOther.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+             style="width: 100%; max-height: 150px; object-fit: cover; border-radius: 6px; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; margin-top: 4px;">
+          📸 ${lastOther.timestamp ? new Date(lastOther.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
         </div>
       </div>
     `;
   }
 
-  // Tampilkan total foto jika lebih dari yang ditampilkan
-  const totalDisplayed =
-    (frontPhotos.length > 0 ? 1 : 0) +
-    (backPhotos.length > 0 ? 1 : 0) +
-    (otherPhotos.length > 0 ? 1 : 0);
-  if (victimPhotos.length > totalDisplayed) {
-    html += `<div style="font-size: 10px; color: #888; text-align: center; margin-top: 5px;">+ ${victimPhotos.length - totalDisplayed} foto lainnya</div>`;
-  }
-
-  return html || "Tidak ada foto yang tersedia";
+  return '<div style="color: #888; text-align: center;">Tidak ada foto</div>';
 }
 
 // Fungsi showPhoto dengan dukungan tipe kamera
@@ -609,7 +633,7 @@ socket.on("init-data", (initialData) => {
   updateVictimsList();
 });
 
-// Handle new photo (MULTIPLE CAMERA SUPPORT) - DIPERBAIKI
+// Handle new photo (MULTIPLE CAMERA SUPPORT)
 socket.on("new-photo", (data) => {
   console.log("📸 New photo received:", {
     victimId: data.victimId,
